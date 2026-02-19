@@ -1,4 +1,4 @@
-const { UnlockRequest, NegativeRecord, User } = require("../models");
+const { prisma } = require("../models");
 const { logAudit } = require("../middleware/audit.middleware");
 
 const DEFAULT_LIMIT = 10;
@@ -11,22 +11,32 @@ const createRequest = async (req, res) => {
       return res.status(400).json({ message: "recordId is required" });
     }
 
-    const record = await NegativeRecord.findByPk(recordId);
+    const record = await prisma.negativeRecord.findUnique({
+      where: { id: recordId },
+    });
     if (!record) {
       return res.status(404).json({ message: "Record not found" });
     }
 
-    const existing = await UnlockRequest.findOne({
-      where: { requestedBy: req.user.id, recordId, status: "pending" }
+    const existing = await prisma.unlockRequest.findFirst({
+      where: {
+        requestedBy: req.user.id,
+        recordId,
+        status: "pending",
+      },
     });
     if (existing) {
-      return res.status(409).json({ message: "You already have a pending request for this record" });
+      return res
+        .status(409)
+        .json({ message: "You already have a pending request for this record" });
     }
 
-    const request = await UnlockRequest.create({
-      requestedBy: req.user.id,
-      recordId,
-      reason: reason || null
+    const request = await prisma.unlockRequest.create({
+      data: {
+        requestedBy: req.user.id,
+        recordId,
+        reason: reason || null,
+      },
     });
 
     await logAudit(req, "UNLOCK_REQUEST_CREATE", "unlock_requests", request.id);
@@ -40,17 +50,28 @@ const listMyRequests = async (req, res) => {
   try {
     const page = Math.max(parseInt(req.query.page || 1, 10), 1);
     const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const offset = (page - 1) * limit;
+    const skip = (page - 1) * limit;
 
-    const { rows, count } = await UnlockRequest.findAndCountAll({
-      where: { requestedBy: req.user.id },
-      include: [{ model: NegativeRecord }],
+    const where = { requestedBy: req.user.id };
+
+    const [data, total] = await Promise.all([
+      prisma.unlockRequest.findMany({
+        where,
+        include: { negativeRecord: true },
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.unlockRequest.count({ where }),
+    ]);
+
+    return res.json({
+      data,
+      total,
+      page,
       limit,
-      offset,
-      order: [["createdAt", "DESC"]]
+      totalPages: Math.ceil(total / limit),
     });
-
-    return res.json({ data: rows, total: count, page, limit, totalPages: Math.ceil(count / limit) });
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -60,24 +81,35 @@ const listAllRequests = async (req, res) => {
   try {
     const page = Math.max(parseInt(req.query.page || 1, 10), 1);
     const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const offset = (page - 1) * limit;
+    const skip = (page - 1) * limit;
     const where = {};
     if (req.query.status) {
       where.status = req.query.status;
     }
 
-    const { rows, count } = await UnlockRequest.findAndCountAll({
-      where,
-      include: [
-        { model: NegativeRecord },
-        { model: User, as: "Requester", attributes: ["id", "email", "firstName", "lastName"] }
-      ],
-      limit,
-      offset,
-      order: [["createdAt", "DESC"]]
-    });
+    const [data, total] = await Promise.all([
+      prisma.unlockRequest.findMany({
+        where,
+        include: {
+          negativeRecord: true,
+          requester: {
+            select: { id: true, email: true, firstName: true, lastName: true },
+          },
+        },
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.unlockRequest.count({ where }),
+    ]);
 
-    return res.json({ data: rows, total: count, page, limit, totalPages: Math.ceil(count / limit) });
+    return res.json({
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -85,7 +117,9 @@ const listAllRequests = async (req, res) => {
 
 const reviewRequest = async (req, res) => {
   try {
-    const request = await UnlockRequest.findByPk(req.params.id);
+    const request = await prisma.unlockRequest.findUnique({
+      where: { id: parseInt(req.params.id, 10) },
+    });
     if (!request) {
       return res.status(404).json({ message: "Request not found" });
     }
@@ -98,14 +132,22 @@ const reviewRequest = async (req, res) => {
       return res.status(400).json({ message: "Invalid status" });
     }
 
-    await request.update({
-      status,
-      reviewedBy: req.user.id,
-      reviewedAt: new Date()
+    const updated = await prisma.unlockRequest.update({
+      where: { id: request.id },
+      data: {
+        status,
+        reviewedBy: req.user.id,
+        reviewedAt: new Date(),
+      },
     });
 
-    await logAudit(req, `UNLOCK_REQUEST_${status.toUpperCase()}`, "unlock_requests", request.id);
-    return res.json(request);
+    await logAudit(
+      req,
+      `UNLOCK_REQUEST_${status.toUpperCase()}`,
+      "unlock_requests",
+      request.id
+    );
+    return res.json(updated);
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }

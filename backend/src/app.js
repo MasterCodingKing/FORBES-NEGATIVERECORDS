@@ -3,8 +3,7 @@ const cors = require("cors");
 const path = require("path");
 require("dotenv").config();
 
-const { sequelize } = require("./config/database");
-const { initModels } = require("./models");
+const { prisma } = require("./config/prisma");
 const { seedRolesAndAdmin } = require("./seeders/initial.seeder");
 
 const authRoutes = require("./routes/auth.routes");
@@ -32,16 +31,15 @@ app.options("*", cors());
 app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
-initModels();
-
-sequelize
-  .sync({ alter: true })
+// Connect to PostgreSQL via Prisma and seed initial data
+prisma
+  .$connect()
   .then(async () => {
-    console.log("Database synced");
+    console.log("Database connected (Prisma + PostgreSQL)");
     await seedRolesAndAdmin();
   })
   .catch((err) => {
-    console.error("Database sync failed", err);
+    console.error("Database connection failed", err);
   });
 
 app.get("/health", (req, res) => {
