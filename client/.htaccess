@@ -1,0 +1,72 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Redirect requests for non-existent files and folders to index.html
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ index.html [QSA,L]
+
+  # Handle requests to root
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(.*)$ index.html [QSA,L]
+</IfModule>
+
+# Enable Gzip compression
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html
+  AddOutputFilterByType DEFLATE text/plain
+  AddOutputFilterByType DEFLATE text/xml
+  AddOutputFilterByType DEFLATE text/css
+  AddOutputFilterByType DEFLATE text/javascript
+  AddOutputFilterByType DEFLATE application/xml
+  AddOutputFilterByType DEFLATE application/xhtml+xml
+  AddOutputFilterByType DEFLATE application/rss+xml
+  AddOutputFilterByType DEFLATE application/javascript
+  AddOutputFilterByType DEFLATE application/x-javascript
+  AddOutputFilterByType DEFLATE application/json
+</IfModule>
+
+# Set cache headers for static assets
+<FilesMatch "\.(jpg|jpeg|png|gif|ico|css|js|svg|woff|woff2|ttf|eot)$">
+  <IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType image/jpeg "access plus 1 year"
+    ExpiresByType image/gif "access plus 1 year"
+    ExpiresByType image/png "access plus 1 year"
+    ExpiresByType image/svg+xml "access plus 1 year"
+    ExpiresByType text/css "access plus 1 month"
+    ExpiresByType text/javascript "access plus 1 month"
+    ExpiresByType application/javascript "access plus 1 month"
+    ExpiresByType font/woff "access plus 1 year"
+    ExpiresByType font/woff2 "access plus 1 year"
+    ExpiresByType font/ttf "access plus 1 year"
+  </IfModule>
+  <IfModule mod_headers.c>
+    Header set Cache-Control "max-age=31536000, public"
+  </IfModule>
+</FilesMatch>
+
+# Don't cache HTML files
+<FilesMatch "\.(html)$">
+  <IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresDefault "access plus 0 seconds"
+  </IfModule>
+  <IfModule mod_headers.c>
+    Header set Cache-Control "max-age=0, no-cache, no-store, must-revalidate"
+  </IfModule>
+</FilesMatch>
+
+# Remove trailing slashes
+RewriteRule ^(.+)/$ $1 [R=301,QSA,L]
+
+# Add security headers
+<IfModule mod_headers.c>
+  Header set X-UA-Compatible "IE=edge"
+  Header set X-Frame-Options "SAMEORIGIN"
+  Header set X-XSS-Protection "1; mode=block"
+  Header set X-Content-Type-Options "nosniff"
+  Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
