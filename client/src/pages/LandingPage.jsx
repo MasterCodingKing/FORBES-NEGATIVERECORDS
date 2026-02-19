@@ -27,7 +27,7 @@ export default function LandingPage() {
               href="/login"
               className="bg-sidebar-active text-sidebar-active-text px-4 py-2 rounded text-sm font-medium hover:opacity-90"
             >
-              Login
+              Login this
             </a>
             <a
               href="/register"
