@@ -1,7 +1,7 @@
 const ROLES = {
   SUPER_ADMIN: "Super Admin",
   ADMIN: "Admin",
-  USER: "User"
+  USER: "Affiliate"
 };
 
 module.exports = { ROLES };

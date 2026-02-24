@@ -102,6 +102,11 @@ const create = async (req, res) => {
     if (!email || !password || !roleId) {
       return res.status(400).json({ message: "Email, password, and role are required" });
     }
+
+    // Convert string IDs to integers
+    const roleIdInt = parseInt(roleId, 10);
+    const clientIdInt = clientId ? parseInt(clientId, 10) : null;
+    const branchIdInt = branchId ? parseInt(branchId, 10) : null;
     if (password.length < 8) {
       return res.status(400).json({ message: "Password must be at least 8 characters" });
     }
@@ -127,9 +132,9 @@ const create = async (req, res) => {
         username: username || null,
         email,
         passwordHash,
-        roleId,
-        clientId: clientId || null,
-        branchId: branchId || null,
+        roleId: roleIdInt,
+        clientId: clientIdInt,
+        branchId: branchIdInt,
         isApproved: 1,
         firstName: firstName || null,
         middleName: middleName || null,

@@ -69,7 +69,7 @@ export default function App() {
           <Route
             path="/affiliate"
             element={
-              <ProtectedRoute roles={["User"]}>
+              <ProtectedRoute roles={["Affiliate"]}>
                 <AffiliateLayout />
               </ProtectedRoute>
             }

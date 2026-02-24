@@ -9,6 +9,7 @@ const router = express.Router();
 router.post("/ocr-upload", auth, requireAdmin, controller.upload.single("file"), controller.uploadAndProcess);
 router.post("/", auth, requireAdmin, controller.createRecord);
 router.get("/", auth, requireAdmin, controller.listRecords);
+router.get("/details/:id", auth, requireAdmin, controller.getRecordDetails);
 
 // Affiliate: search
 router.get("/search", auth, controller.search);

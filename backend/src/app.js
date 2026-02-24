@@ -16,6 +16,7 @@ const creditRoutes = require("./routes/credit.routes");
 const recordRoutes = require("./routes/record.routes");
 const searchLogRoutes = require("./routes/search_log.routes");
 const directoryRoutes = require("./routes/directory.routes");
+const notificationRoutes = require("./routes/notification.routes");
 
 const app = express();
 
@@ -56,5 +57,6 @@ app.use("/api/credits", creditRoutes);
 app.use("/api/records", recordRoutes);
 app.use("/api/search-logs", searchLogRoutes);
 app.use("/api/directory", directoryRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 module.exports = app;

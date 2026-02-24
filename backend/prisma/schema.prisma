@@ -49,8 +49,11 @@ model User {
   ocrBatches         OcrBatch[]
   searchLogs         SearchLog[]
   unlockRequests     UnlockRequest[]    @relation("UserUnlockRequests")
+  recordLocks        RecordLock[]
   createdNews        News[]
   creditTransactions CreditTransaction[]
+  notifications      Notification[]
+  lockHistories      LockHistory[]
 
   @@index([clientId])
   @@index([branchId])
@@ -141,23 +144,42 @@ model AuditLog {
 }
 
 model NegativeRecord {
-  id          Int            @id @default(autoincrement())
-  type        RecordType
-  firstName   String?        @db.VarChar(120)
-  middleName  String?        @db.VarChar(120)
-  lastName    String?        @db.VarChar(120)
-  companyName String?        @db.VarChar(200)
-  details     String?        @db.Text
-  source      String?        @db.VarChar(255)
-  ocrBatchId  Int?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  id            Int            @id @default(autoincrement())
+  type          RecordType
+  firstName     String?        @db.VarChar(120)
+  middleName    String?        @db.VarChar(120)
+  lastName      String?        @db.VarChar(120)
+  alias         String?        @db.VarChar(120)
+  companyName   String?        @db.VarChar(200)
+  caseNo        String?        @db.VarChar(100)
+  plaintiff     String?        @db.VarChar(200)
+  caseType      String?        @db.VarChar(100)
+  courtType     String?        @db.VarChar(100)
+  branch        String?        @db.VarChar(150)
+  city          String?        @db.VarChar(150)
+  dateFiled     DateTime?
+  bounce        String?        @db.VarChar(100)
+  decline       String?        @db.VarChar(100)
+  delinquent    String?        @db.VarChar(100)
+  telecom       String?        @db.VarChar(100)
+  watch         String?        @db.VarChar(100)
+  isScanned     Int            @default(0) @db.SmallInt
+  isScannedCsv  Int            @default(0) @db.SmallInt
+  isScannedPdf  Int            @default(0) @db.SmallInt
+  details       String?        @db.Text
+  source        String?        @db.VarChar(255)
+  ocrBatchId    Int?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   ocrBatch       OcrBatch?       @relation(fields: [ocrBatchId], references: [id])
   unlockRequests UnlockRequest[]
+  recordLock     RecordLock?
+  lockHistories  LockHistory[]
 
   @@index([lastName])
   @@index([companyName])
+  @@index([caseNo])
   @@index([type])
   @@map("negative_records")
 }
@@ -270,4 +292,53 @@ model CreditTransaction {
 enum CreditTransactionType {
   topup
   deduction
+}
+
+model RecordLock {
+  id        Int      @id @default(autoincrement())
+  recordId  Int      @unique
+  lockedBy  Int
+  lockedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  negativeRecord NegativeRecord @relation(fields: [recordId], references: [id])
+  user           User           @relation(fields: [lockedBy], references: [id])
+
+  @@index([lockedBy])
+  @@map("record_locks")
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  type      String   @db.VarChar(50)
+  title     String   @db.VarChar(255)
+  message   String   @db.Text
+  isRead    Int      @default(0) @db.SmallInt
+  relatedId Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model LockHistory {
+  id        Int      @id @default(autoincrement())
+  recordId  Int
+  lockedBy  Int
+  action    String   @db.VarChar(50)
+  createdAt DateTime @default(now())
+
+  negativeRecord NegativeRecord @relation(fields: [recordId], references: [id])
+  user           User           @relation(fields: [lockedBy], references: [id])
+
+  @@index([recordId])
+  @@index([createdAt])
+  @@map("lock_histories")
 }

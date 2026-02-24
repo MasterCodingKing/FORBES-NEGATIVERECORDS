@@ -36,8 +36,8 @@ export default function AffiliateLayout() {
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar */}
-        <aside className="w-60 bg-sidebar-bg border-r border-card-border overflow-y-auto">
-          <nav className="flex flex-col py-2">
+        <aside className="w-60 bg-sidebar-bg border-r border-card-border flex flex-col">
+          <nav className="flex flex-col py-2 flex-1 overflow-y-auto">
             {affiliateLinks.map((link) => (
               <NavLink
                 key={link.to}
@@ -54,6 +54,13 @@ export default function AffiliateLayout() {
               </NavLink>
             ))}
           </nav>
+          {/* Affiliate name pinned at bottom */}
+          {user?.clientName && (
+            <div className="border-t border-card-border px-4 py-3">
+              <p className="text-xs text-sidebar-text">Affiliate</p>
+              <p className="text-sm font-bold text-primary-header truncate">{user.clientName}</p>
+            </div>
+          )}
         </aside>
 
         {/* Main Content */}

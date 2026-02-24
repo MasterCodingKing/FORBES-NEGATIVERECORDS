@@ -4,6 +4,16 @@ const { ROLES } = require("../utils/roles");
 
 const seedRolesAndAdmin = async () => {
   try {
+    // Migrate old "User" role name to "Affiliate"
+    const oldRole = await prisma.role.findFirst({ where: { name: "User" } });
+    if (oldRole) {
+      await prisma.role.update({
+        where: { id: oldRole.id },
+        data: { name: ROLES.USER },
+      });
+      console.log('Renamed role "User" to "Affiliate"');
+    }
+
     const roles = [ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.USER];
     for (const name of roles) {
       await prisma.role.upsert({

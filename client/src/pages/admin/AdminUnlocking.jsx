@@ -22,11 +22,33 @@ export default function AdminUnlocking() {
       key: "requester",
       label: "Requested By",
       render: (r) => {
-        const u = r.Requester;
-        return u ? [u.firstName, u.lastName].filter(Boolean).join(" ") : "Unknown";
+        const u = r.requester;
+        return u ? [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email : "Unknown";
       },
     },
     { key: "recordId", label: "Record ID" },
+    {
+      key: "recordName",
+      label: "Record Name",
+      render: (r) => {
+        const rec = r.negativeRecord;
+        if (!rec) return "—";
+        return rec.type === "Individual"
+          ? [rec.firstName, rec.middleName, rec.lastName].filter(Boolean).join(" ")
+          : rec.companyName || "—";
+      },
+    },
+    {
+      key: "lockOwner",
+      label: "Lock Owner",
+      render: (r) => {
+        const lock = r.negativeRecord?.recordLock;
+        if (!lock?.user) return "—";
+        const u = lock.user;
+        return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email;
+      },
+    },
+    { key: "reason", label: "Reason", render: (r) => r.reason || "—" },
     {
       key: "status",
       label: "Status",
