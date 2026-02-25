@@ -11,7 +11,9 @@ router.post("/", auth, requireAdmin, controller.createRecord);
 router.get("/", auth, requireAdmin, controller.listRecords);
 router.get("/details/:id", auth, requireAdmin, controller.getRecordDetails);
 
-// Affiliate: search
+// Affiliate: search and record access
 router.get("/search", auth, controller.search);
+router.get("/:id/lock-info", auth, controller.getLockInfo);
+router.post("/:id/print", auth, controller.printRecord);
 
 module.exports = router;

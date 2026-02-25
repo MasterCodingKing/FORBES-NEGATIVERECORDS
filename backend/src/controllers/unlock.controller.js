@@ -40,6 +40,45 @@ const createRequest = async (req, res) => {
     });
 
     await logAudit(req, "UNLOCK_REQUEST_CREATE", "unlock_requests", request.id);
+
+    // Get requester's full info for notifications
+    const requester = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: { client: { select: { id: true, name: true } } },
+    });
+    const requesterName = [requester.firstName, requester.lastName].filter(Boolean).join(" ") || requester.email;
+    const requesterAffiliate = requester.client?.name || "Unknown Affiliate";
+
+    // Notify the requesting user (confirmation)
+    await prisma.notification.create({
+      data: {
+        userId: req.user.id,
+        type: "UNLOCK_REQUEST",
+        title: "Access Request Submitted",
+        message: `Your access request for record #${recordId} has been submitted and is pending review.`,
+        relatedId: request.id,
+      },
+    });
+
+    // Notify the lock owner that someone is requesting access
+    const lock = await prisma.recordLock.findUnique({
+      where: { recordId },
+      select: { lockedBy: true },
+    });
+    if (lock && lock.lockedBy !== req.user.id) {
+      await prisma.notification.create({
+        data: {
+          userId: lock.lockedBy,
+          type: "UNLOCK_REQUEST_RECEIVED",
+          title: "New Access Request",
+          message: `You have an access request from ${requesterAffiliate} — ${requesterName} for record #${recordId}.${
+            reason ? ` Reason: "${reason}"` : ""
+          }`,
+          relatedId: request.id,
+        },
+      });
+    }
+
     return res.status(201).json(request);
   } catch (err) {
     return res.status(500).json({ message: err.message });
@@ -101,7 +140,17 @@ const listAllRequests = async (req, res) => {
             },
           },
           requester: {
-            select: { id: true, email: true, firstName: true, lastName: true },
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              telephone: true,
+              mobileNumber: true,
+              position: true,
+              client: { select: { id: true, name: true } },
+              branch: { select: { id: true, name: true } },
+            },
           },
         },
         skip,
@@ -149,10 +198,40 @@ const reviewRequest = async (req, res) => {
       }
     }
 
-    const { status } = req.body;
+    const { status, denialReason } = req.body;
     if (!["approved", "denied"].includes(status)) {
       return res.status(400).json({ message: "Invalid status" });
     }
+    if (status === "denied" && !denialReason?.trim()) {
+      return res.status(400).json({ message: "denialReason is required when denying a request" });
+    }
+
+    // Get reviewer info for notification messages
+    const reviewer = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: { client: { select: { name: true } } },
+    });
+    const reviewerName = [reviewer.firstName, reviewer.lastName].filter(Boolean).join(" ") || reviewer.email;
+    const reviewerAffiliate = reviewer.client?.name || "Admin";
+
+    // Get requester info for the approval notification
+    const requestRequester = await prisma.user.findUnique({
+      where: { id: request.requestedBy },
+      include: { client: { select: { name: true } } },
+    });
+    const requesterName = [requestRequester.firstName, requestRequester.lastName].filter(Boolean).join(" ") || requestRequester.email;
+    const requesterAffiliate = requestRequester.client?.name || "Unknown Affiliate";
+
+    // Get record name for notification messages
+    const recordForNotif = await prisma.negativeRecord.findUnique({
+      where: { id: request.recordId },
+      select: { type: true, firstName: true, middleName: true, lastName: true, companyName: true },
+    });
+    const recordName = recordForNotif
+      ? recordForNotif.type === "Individual"
+        ? [recordForNotif.firstName, recordForNotif.middleName, recordForNotif.lastName].filter(Boolean).join(" ") || `Record #${request.recordId}`
+        : recordForNotif.companyName || `Record #${request.recordId}`
+      : `Record #${request.recordId}`;
 
     // Update the request status
     const updated = await prisma.unlockRequest.update({
@@ -200,6 +279,29 @@ const reviewRequest = async (req, res) => {
       await logAudit(req, "RECORD_LOCK_TRANSFER", "record_locks", request.recordId);
     }
 
+    // Notify the requester about the decision
+    if (status === "approved") {
+      await prisma.notification.create({
+        data: {
+          userId: request.requestedBy,
+          type: "UNLOCK_REQUEST_APPROVED",
+          title: "Access Request Approved",
+          message: `Your access request for "${recordName}" has been approved by ${reviewerAffiliate} — ${reviewerName}. You now have full access to this record.`,
+          relatedId: request.id,
+        },
+      });
+    } else {
+      await prisma.notification.create({
+        data: {
+          userId: request.requestedBy,
+          type: "UNLOCK_REQUEST_DENIED",
+          title: "Access Request Denied",
+          message: `Your access request for "${recordName}" has been denied by ${reviewerAffiliate} — ${reviewerName}. Reason: "${denialReason}".`,
+          relatedId: request.id,
+        },
+      });
+    }
+
     await logAudit(
       req,
       `UNLOCK_REQUEST_${status.toUpperCase()}`,
@@ -237,7 +339,17 @@ const listOwnedRequests = async (req, res) => {
         include: {
           negativeRecord: true,
           requester: {
-            select: { id: true, email: true, firstName: true, lastName: true },
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+              telephone: true,
+              mobileNumber: true,
+              position: true,
+              client: { select: { id: true, name: true } },
+              branch: { select: { id: true, name: true } },
+            },
           },
         },
         skip,

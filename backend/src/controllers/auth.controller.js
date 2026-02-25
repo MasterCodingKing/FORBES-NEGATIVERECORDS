@@ -136,6 +136,9 @@ const login = async (req, res) => {
       {
         id: user.id,
         role: user.role?.name || ROLES.USER,
+        firstName: user.firstName || null,
+        lastName: user.lastName || null,
+        email: user.email,
         fullName,
         clientName: user.client?.name || null,
       },

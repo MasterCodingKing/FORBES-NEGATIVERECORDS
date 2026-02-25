@@ -208,13 +208,6 @@ const search = async (req, res) => {
       return res.status(403).json({ message: "Client not found" });
     }
 
-    // Prepaid clients: block if no credit
-    if (client.billingType === "Prepaid" && parseFloat(client.creditBalance) <= 0) {
-      return res.status(402).json({
-        message: "Insufficient credit. Please request a top-up from your admin.",
-      });
-    }
-
     // Build search term string for duplicate detection
     const searchTermStr =
       type === "Individual"
@@ -222,15 +215,6 @@ const search = async (req, res) => {
             .map((s) => (s || "").trim().toLowerCase())
             .join("|")
         : term.trim().toLowerCase();
-
-    // Duplicate search check — same client, same term
-    const existingSearch = await prisma.searchLog.findFirst({
-      where: {
-        clientId: user.clientId,
-        searchType: type,
-        searchTerm: searchTermStr,
-      },
-    });
 
     // Build search query
     const searchWhere = { type };
@@ -359,34 +343,8 @@ const search = async (req, res) => {
       }
     }
 
-    // Billing: only charge if this is a new search for this client
-    let billed = false;
-    const searchFee = parseFloat(process.env.SEARCH_FEE || "1.00");
-    const billingDescription =
-      type === "Individual"
-        ? `Search: Individual - "${[firstName, middleName, lastName].filter(Boolean).join(" ")}"`
-        : `Search: Company - "${term}"`;
-
-    if (!existingSearch && client.billingType === "Prepaid") {
-      await prisma.client.update({
-        where: { id: user.clientId },
-        data: {
-          creditBalance: parseFloat(client.creditBalance) - searchFee,
-        },
-      });
-
-      await prisma.creditTransaction.create({
-        data: {
-          clientId: user.clientId,
-          amount: searchFee,
-          type: "deduction",
-          description: billingDescription,
-          performedBy: userId,
-        },
-      });
-
-      billed = true;
-    }
+    // Search is always free — credits are only deducted on print
+    const billed = false;
 
     await prisma.searchLog.create({
       data: {
@@ -394,20 +352,239 @@ const search = async (req, res) => {
         clientId: user.clientId,
         searchType: type,
         searchTerm: searchTermStr,
-        isBilled: billed ? 1 : 0,
-        fee: billed ? searchFee : 0,
+        isBilled: 0,
+        fee: 0,
       },
-    });
-
-    // Refetch updated balance
-    const updatedClient = await prisma.client.findUnique({
-      where: { id: user.clientId },
     });
 
     return res.json({
       results: processedResults,
+      billed: false,
+      remainingCredit: client.creditBalance,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+// --- Affiliate: Get lock info for a locked record (no credit deduction) ---
+
+const getLockInfo = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const userId = req.user.id;
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.clientId) {
+      return res.status(403).json({ message: "No client assigned" });
+    }
+
+    const lock = await prisma.recordLock.findUnique({
+      where: { recordId: id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            middleName: true,
+            lastName: true,
+            username: true,
+            telephone: true,
+            mobileNumber: true,
+            primaryEmail: true,
+            email: true,
+            position: true,
+            department: true,
+            branch: { select: { id: true, name: true } },
+            client: {
+              select: {
+                id: true,
+                name: true,
+                clientCode: true,
+                telephone: true,
+                mobile: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!lock) {
+      return res.status(404).json({ message: "No lock found for this record" });
+    }
+
+    const record = await prisma.negativeRecord.findUnique({ where: { id } });
+    if (!record) {
+      return res.status(404).json({ message: "Record not found" });
+    }
+
+    // Build search term for access history lookup
+    const searchName =
+      record.type === "Individual"
+        ? [record.firstName, record.middleName, record.lastName]
+            .map((s) => (s || "").trim().toLowerCase())
+            .join("|")
+        : (record.companyName || "").trim().toLowerCase();
+
+    const accessHistory = await prisma.searchLog.findMany({
+      where: { searchTerm: searchName },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            username: true,
+            client: { select: { id: true, name: true } },
+            branch: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+
+    const lockOwner = lock.user;
+    return res.json({
+      record: {
+        id: record.id,
+        type: record.type,
+        name:
+          record.type === "Individual"
+            ? [record.firstName, record.middleName, record.lastName].filter(Boolean).join(" ")
+            : record.companyName,
+      },
+      lock: {
+        id: lock.id,
+        lockedAt: lock.lockedAt,
+        lockedBy: {
+          id: lockOwner.id,
+          name: [lockOwner.firstName, lockOwner.middleName, lockOwner.lastName]
+            .filter(Boolean)
+            .join(" "),
+          username: lockOwner.username,
+          telephone: lockOwner.telephone,
+          mobileNumber: lockOwner.mobileNumber,
+          email: lockOwner.primaryEmail || lockOwner.email,
+          position: lockOwner.position,
+          department: lockOwner.department,
+          branch: lockOwner.branch?.name || null,
+          affiliate: lockOwner.client
+            ? {
+                id: lockOwner.client.id,
+                name: lockOwner.client.name,
+                clientCode: lockOwner.client.clientCode,
+                telephone: lockOwner.client.telephone,
+                mobile: lockOwner.client.mobile,
+                email: lockOwner.client.email,
+              }
+            : null,
+        },
+      },
+      accessHistory: accessHistory.map((log) => ({
+        id: log.id,
+        searchDate: log.createdAt,
+        username: log.user?.username || "—",
+        fullName:
+          [log.user?.firstName, log.user?.lastName].filter(Boolean).join(" ") || "—",
+        affiliate: log.user?.client?.name || "—",
+        branch: log.user?.branch?.name || "—",
+      })),
+    });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+// --- Affiliate: Print record (credits deducted here) ---
+
+const printRecord = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const userId = req.user.id;
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.clientId) {
+      return res.status(403).json({ message: "No client assigned" });
+    }
+
+    const client = await prisma.client.findFirst({
+      where: { id: user.clientId, isActive: 1 },
+    });
+    if (!client) {
+      return res.status(403).json({ message: "Client not found" });
+    }
+
+    // Only the lock owner can print
+    const lock = await prisma.recordLock.findUnique({
+      where: { recordId: id },
+    });
+    if (!lock || lock.lockedBy !== userId) {
+      return res.status(403).json({ message: "You do not have access to print this record" });
+    }
+
+    const record = await prisma.negativeRecord.findUnique({ where: { id } });
+    if (!record) {
+      return res.status(404).json({ message: "Record not found" });
+    }
+
+    // Prepaid clients: check balance and deduct on print
+    const printFee = parseFloat(process.env.PRINT_FEE || process.env.SEARCH_FEE || "1.00");
+    let billed = false;
+
+    if (client.billingType === "Prepaid") {
+      if (parseFloat(client.creditBalance) < printFee) {
+        return res.status(402).json({
+          message: "Insufficient credit to print this record. Please request a top-up.",
+        });
+      }
+
+      await prisma.client.update({
+        where: { id: user.clientId },
+        data: { creditBalance: parseFloat(client.creditBalance) - printFee },
+      });
+
+      await prisma.creditTransaction.create({
+        data: {
+          clientId: user.clientId,
+          amount: printFee,
+          type: "deduction",
+          description: `Print Record #${id}`,
+          performedBy: userId,
+        },
+      });
+
+      billed = true;
+    }
+
+    await logAudit(req, "RECORD_PRINT", "negative_records", id);
+
+    const updatedClient = await prisma.client.findUnique({ where: { id: user.clientId } });
+
+    // Fetch fresh record with all details
+    const fullRecord = await prisma.negativeRecord.findUnique({
+      where: { id },
+    });
+
+    // Build reference number: REF-YYYYMMDD-<recordId>
+    const now = new Date();
+    const refNo = `REF-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${id}`;
+
+    return res.json({
+      record: fullRecord,
       billed,
       remainingCredit: updatedClient.creditBalance,
+      printMeta: {
+        inquiryDate: now.toISOString(),
+        inquiryBy: [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email,
+        client: updatedClient.name,
+        branch: user.branchId
+          ? (await prisma.subDomain.findUnique({ where: { id: user.branchId }, select: { name: true } }))?.name || 'All'
+          : 'All',
+        referenceNo: refNo,
+      },
     });
   } catch (err) {
     return res.status(500).json({ message: err.message });
@@ -488,4 +665,4 @@ const getRecordDetails = async (req, res) => {
   }
 };
 
-module.exports = { upload, uploadAndProcess, createRecord, listRecords, search, getRecordDetails };
+module.exports = { upload, uploadAndProcess, createRecord, listRecords, search, getLockInfo, printRecord, getRecordDetails };
