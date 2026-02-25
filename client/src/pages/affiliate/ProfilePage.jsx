@@ -83,7 +83,7 @@ export default function ProfilePage() {
           <label className="block text-sm font-medium text-sidebar-text mb-1">Role</label>
           <input value={profile.Role?.name || "N/A"} disabled className="w-full border border-card-border rounded px-3 py-2 text-sm bg-page-bg text-sidebar-text" />
         </div>
-        <button type="submit" className="bg-primary-header text-primary-on-dark px-4 py-2 rounded text-sm font-medium hover:opacity-90">Save Changes</button>
+        <button type="submit" className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90">Save Changes</button>
       </form>
 
       <form onSubmit={handleChangePassword} className="bg-card-bg border border-card-border rounded-lg p-4 space-y-3">
@@ -96,7 +96,7 @@ export default function ProfilePage() {
           <label className="block text-sm font-medium text-sidebar-text mb-1">New Password</label>
           <input type="password" value={passwordForm.newPassword} onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} className="w-full border border-card-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-header" required />
         </div>
-        <button type="submit" className="bg-primary-header text-primary-on-dark px-4 py-2 rounded text-sm font-medium hover:opacity-90">Change Password</button>
+        <button type="submit" className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90">Change Password</button>
       </form>
     </div>
   );

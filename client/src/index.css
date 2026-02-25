@@ -1,18 +1,31 @@
 @import "tailwindcss";
 
 @theme {
-  /* Brand & Navigation */
+  /* Navigation bar background (dark in both modes) */
+  --color-nav-bg: #000B5B;
+
+  /* Primary accent — used for heading text & button bg */
   --color-primary-header: #000B5B;
   --color-primary-on-dark: #ffffff;
+
+  /* Sidebar */
   --color-sidebar-bg: #F5F5F5;
   --color-sidebar-text: #6B6B6B;
   --color-sidebar-active: #001F9E;
   --color-sidebar-active-text: #FFFFFF;
 
-  /* Content */
+  /* Content surfaces */
   --color-page-bg: #FFFFFF;
   --color-card-bg: #FAFAFA;
   --color-card-border: #E0E0E0;
+
+  /* Form inputs */
+  --color-input-bg: #FFFFFF;
+  --color-body-text: #1F2937;
+
+  /* Buttons */
+  --color-btn-primary: #000B5B;
+  --color-btn-primary-text: #FFFFFF;
 
   /* Status */
   --color-warning: #FFCC00;
@@ -20,8 +33,45 @@
   --color-error: #E53935;
 }
 
+/* ─── Dark-mode overrides (activated by .dark on <html>) ─── */
+.dark {
+  --color-nav-bg: #070E2B;
+  --color-primary-header: #7DA2FF;
+  --color-primary-on-dark: #E2E8F0;
+  --color-sidebar-bg: #0F1629;
+  --color-sidebar-text: #94A3B8;
+  --color-sidebar-active: #1D4ED8;
+  --color-sidebar-active-text: #FFFFFF;
+  --color-page-bg: #0B1120;
+  --color-card-bg: #131C31;
+  --color-card-border: #1E2D4A;
+  --color-input-bg: #131C31;
+  --color-body-text: #E2E8F0;
+  --color-btn-primary: #1D4ED8;
+  --color-btn-primary-text: #FFFFFF;
+}
+
+/* ─── Base ─── */
 body {
   margin: 0;
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   background-color: var(--color-page-bg);
+  color: var(--color-body-text);
 }
+
+/* Smooth theme transition */
+*, *::before, *::after {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.15s ease;
+}
+
+/* Form elements adapt automatically */
+input, select, textarea {
+  background-color: var(--color-input-bg);
+  color: var(--color-body-text);
+}
+
+/* Scrollbar styling for dark mode */
+.dark ::-webkit-scrollbar { width: 8px; }
+.dark ::-webkit-scrollbar-track { background: var(--color-page-bg); }
+.dark ::-webkit-scrollbar-thumb { background: var(--color-card-border); border-radius: 4px; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #2a3f66; }

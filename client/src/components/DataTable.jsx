@@ -115,7 +115,7 @@ export default function DataTable({
       <div className="bg-card-bg border border-card-border rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-primary-header text-primary-on-dark">
+            <thead className="bg-nav-bg text-primary-on-dark">
               <tr>
                 {columns.map((col) => (
                   <th key={col.key} className="px-4 py-3 text-left whitespace-nowrap">
@@ -188,7 +188,7 @@ export default function DataTable({
               onClick={() => goTo(p)}
               className={`px-3 py-1 rounded border ${
                 p === page
-                  ? "bg-primary-header text-primary-on-dark border-primary-header"
+                  ? "bg-btn-primary text-btn-primary-text border-btn-primary"
                   : "border-card-border hover:bg-sidebar-bg"
               }`}
             >

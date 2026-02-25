@@ -111,7 +111,7 @@ export default function ManageClients() {
         <h2 className="text-xl font-bold text-primary-header">Manage Clients</h2>
         <button
           onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ ...emptyForm }); setError(""); setSuccess(""); }}
-          className="bg-primary-header text-primary-on-dark px-4 py-2 rounded text-sm font-medium hover:opacity-90"
+          className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90"
         >
           {showForm ? "Cancel" : "+ Add Client"}
         </button>
@@ -209,7 +209,7 @@ export default function ManageClients() {
           )}
 
           <div className="flex gap-2 pt-2">
-            <button type="submit" className="bg-primary-header text-primary-on-dark px-6 py-2 rounded text-sm font-medium hover:opacity-90">
+            <button type="submit" className="bg-btn-primary text-btn-primary-text px-6 py-2 rounded text-sm font-medium hover:opacity-90">
               {editingId ? "Update Client" : "Save Client"}
             </button>
             <button type="button" onClick={() => { setShowForm(false); setEditingId(null); setForm({ ...emptyForm }); }}

@@ -1,5 +1,6 @@
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import ThemeToggle from "../ThemeToggle";
 
 const affiliateLinks = [
   { to: "/affiliate/search", label: "Negative Records Search" },
@@ -21,9 +22,10 @@ export default function AffiliateLayout() {
   return (
     <div className="flex flex-col h-screen">
       {/* Top Header */}
-      <header className="bg-primary-header text-primary-on-dark flex items-center justify-between px-6 py-3">
+      <header className="bg-nav-bg text-primary-on-dark flex items-center justify-between px-6 py-3 shadow-md">
         <h1 className="text-lg font-bold tracking-wide">NEGRECT</h1>
         <div className="flex items-center gap-4">
+          <ThemeToggle />
           <span className="text-sm">{user?.role}</span>
           <button
             onClick={handleLogout}

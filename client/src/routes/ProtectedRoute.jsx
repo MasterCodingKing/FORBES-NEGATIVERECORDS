@@ -13,11 +13,14 @@ export default function ProtectedRoute({ children, roles }) {
   }
 
   if (roles && !roles.includes(user.role)) {
-    // Redirect to the appropriate home for their actual role instead of "/" to avoid routing loops
     if (user.role === "Super Admin" || user.role === "Admin") {
       return <Navigate to="/admin/clients" replace />;
     }
-    return <Navigate to="/affiliate/search" replace />;
+    if (user.role === "Affiliate") {
+      return <Navigate to="/affiliate/search" replace />;
+    }
+    // Unknown or stale role (e.g. old "User" token) — force re-login
+    return <Navigate to="/login" replace />;
   }
 
   return children;

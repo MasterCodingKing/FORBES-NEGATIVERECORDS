@@ -184,7 +184,7 @@ export default function NegativeRecordSearch() {
         <button
           type="submit"
           disabled={loading || (tab === "Individual" ? !individualValid : !companyValid)}
-          className="bg-primary-header text-primary-on-dark px-6 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
+          className="bg-btn-primary text-btn-primary-text px-6 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
         >
           {loading ? "Searching..." : "Search"}
         </button>
@@ -201,7 +201,7 @@ export default function NegativeRecordSearch() {
       {results.length > 0 && (
         <div className="bg-card-bg border border-card-border rounded-lg overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-primary-header text-primary-on-dark">
+            <thead className="bg-nav-bg text-primary-on-dark">
               <tr>
                 <th className="px-4 py-3 text-left">ID</th>
                 <th className="px-4 py-3 text-left">Type</th>
@@ -241,7 +241,7 @@ export default function NegativeRecordSearch() {
                       {!r.isLocked && (
                         <button
                           onClick={() => openViewModal(r)}
-                          className="bg-primary-header text-primary-on-dark px-3 py-1 rounded text-xs font-medium hover:opacity-90"
+                          className="bg-btn-primary text-btn-primary-text px-3 py-1 rounded text-xs font-medium hover:opacity-90"
                         >
                           View
                         </button>
@@ -250,7 +250,7 @@ export default function NegativeRecordSearch() {
                       {r.isLocked && !r.hasPendingRequest && (
                         <button
                           onClick={() => openRequestModal(r)}
-                          className="bg-primary-header text-primary-on-dark px-3 py-1 rounded text-xs font-medium hover:opacity-90"
+                          className="bg-btn-primary text-btn-primary-text px-3 py-1 rounded text-xs font-medium hover:opacity-90"
                         >
                           Request Access
                         </button>
@@ -372,7 +372,7 @@ export default function NegativeRecordSearch() {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="bg-primary-header text-primary-on-dark px-4 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                    className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
                   >
                     {submitting ? "Submitting..." : "Submit Request"}
                   </button>

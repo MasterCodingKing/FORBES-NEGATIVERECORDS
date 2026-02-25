@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../api/axios";
+import ThemeToggle from "../ThemeToggle";
 
 const adminLinks = [
   { to: "/admin/clients", label: "Manage Clients" },
@@ -99,9 +100,10 @@ export default function AdminLayout() {
   return (
     <div className="flex flex-col h-screen">
       {/* Top Header */}
-      <header className="bg-primary-header text-primary-on-dark flex items-center justify-between px-6 py-3">
+      <header className="bg-nav-bg text-primary-on-dark flex items-center justify-between px-6 py-3 shadow-md">
         <h1 className="text-lg font-bold tracking-wide">NEGRECT Admin</h1>
         <div className="flex items-center gap-4">
+          <ThemeToggle />
           {/* Notification Bell */}
           <div className="relative" ref={panelRef}>
             <button
@@ -141,7 +143,7 @@ export default function AdminLayout() {
                         key={n.id}
                         onClick={() => handleNotifClick(n)}
                         className={`w-full text-left px-4 py-3 border-b border-card-border hover:bg-sidebar-bg transition-colors ${
-                          !n.isRead ? "bg-primary-header/5" : ""
+                          !n.isRead ? "bg-sidebar-active/5" : ""
                         }`}
                       >
                         <div className="flex items-start gap-2">

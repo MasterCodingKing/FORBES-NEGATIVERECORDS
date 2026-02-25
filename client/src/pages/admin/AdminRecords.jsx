@@ -267,7 +267,7 @@ export default function AdminRecords() {
             </div>
           </div>
 
-          <button type="submit" className="bg-primary-header text-primary-on-dark px-6 py-2 rounded text-sm font-medium hover:opacity-90">
+          <button type="submit" className="bg-btn-primary text-btn-primary-text px-6 py-2 rounded text-sm font-medium hover:opacity-90">
             Save Record
           </button>
         </form>
@@ -280,9 +280,9 @@ export default function AdminRecords() {
             ref={fileRef}
             type="file"
             accept=".pdf,.png,.jpg,.jpeg"
-            className="block w-full text-sm text-sidebar-text file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-primary-header file:text-primary-on-dark hover:file:opacity-90"
+            className="block w-full text-sm text-sidebar-text file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-nav-bg file:text-primary-on-dark hover:file:opacity-90"
           />
-          <button type="submit" className="bg-primary-header text-primary-on-dark px-4 py-2 rounded text-sm font-medium hover:opacity-90">
+          <button type="submit" className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90">
             Upload & Process
           </button>
         </form>
@@ -353,7 +353,7 @@ export default function AdminRecords() {
                   {detailRecord.record.unlockRequests?.length > 0 ? (
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
-                        <thead className="bg-primary-header text-primary-on-dark">
+                        <thead className="bg-nav-bg text-primary-on-dark">
                           <tr>
                             <th className="px-3 py-2 text-left">Requestor</th>
                             <th className="px-3 py-2 text-left">Date</th>
@@ -390,7 +390,7 @@ export default function AdminRecords() {
                   {detailRecord.searchHistory?.length > 0 ? (
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
-                        <thead className="bg-primary-header text-primary-on-dark">
+                        <thead className="bg-nav-bg text-primary-on-dark">
                           <tr>
                             <th className="px-3 py-2 text-left">User</th>
                             <th className="px-3 py-2 text-left">Affiliate</th>
@@ -421,7 +421,7 @@ export default function AdminRecords() {
                   {detailRecord.record.lockHistories?.length > 0 ? (
                     <div className="overflow-x-auto">
                       <table className="w-full text-xs">
-                        <thead className="bg-primary-header text-primary-on-dark">
+                        <thead className="bg-nav-bg text-primary-on-dark">
                           <tr>
                             <th className="px-3 py-2 text-left">User</th>
                             <th className="px-3 py-2 text-left">Affiliate</th>

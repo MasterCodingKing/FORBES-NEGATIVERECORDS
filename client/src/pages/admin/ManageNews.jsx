@@ -68,7 +68,7 @@ export default function ManageNews() {
         <h2 className="text-xl font-bold text-primary-header">Manage News</h2>
         <button
           onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ title: "", content: "", imageUrl: "" }); }}
-          className="bg-primary-header text-primary-on-dark px-4 py-2 rounded text-sm font-medium hover:opacity-90"
+          className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90"
         >
           {showForm ? "Cancel" : "+ Add News"}
         </button>
@@ -80,7 +80,7 @@ export default function ManageNews() {
           <input name="title" value={form.title} onChange={handleChange} placeholder="Title" className="w-full border border-card-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-header" required />
           <textarea name="content" value={form.content} onChange={handleChange} placeholder="Content" rows="4" className="w-full border border-card-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-header" required />
           <input name="imageUrl" value={form.imageUrl} onChange={handleChange} placeholder="Image URL (optional)" className="w-full border border-card-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-header" />
-          <button type="submit" className="bg-primary-header text-primary-on-dark px-4 py-2 rounded text-sm font-medium hover:opacity-90">
+          <button type="submit" className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90">
             {editingId ? "Update" : "Add News"}
           </button>
         </form>

@@ -109,7 +109,7 @@ export default function AffiliateBranches() {
         <h2 className="text-xl font-bold text-primary-header">Affiliate Branches</h2>
         <button
           onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ clientId: "", branchName: "", status: "Active" }); setSelectedClientCode(""); setError(""); setSuccess(""); }}
-          className="bg-primary-header text-primary-on-dark px-4 py-2 rounded text-sm font-medium hover:opacity-90"
+          className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90"
         >
           {showForm ? "Cancel" : "+ Add Branch"}
         </button>
@@ -148,7 +148,7 @@ export default function AffiliateBranches() {
             </div>
           </div>
           <div className="flex gap-2 pt-2">
-            <button type="submit" className="bg-primary-header text-primary-on-dark px-6 py-2 rounded text-sm font-medium hover:opacity-90">
+            <button type="submit" className="bg-btn-primary text-btn-primary-text px-6 py-2 rounded text-sm font-medium hover:opacity-90">
               {editingId ? "Update Branch" : "Save Branch"}
             </button>
             <button type="button" onClick={() => { setShowForm(false); setEditingId(null); }}
