@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import api from "../../api/axios";
 import DataTable from "../../components/DataTable";
 
@@ -12,6 +12,19 @@ const emptyForm = {
   details: "", source: "",
 };
 
+const UPLOAD_COLUMNS = [
+  { key: "lastName", label: "Last Name" },
+  { key: "firstName", label: "First Name" },
+  { key: "middleName", label: "Middle Name" },
+  { key: "companyName", label: "Company" },
+  { key: "caseNo", label: "Case No." },
+  { key: "plaintiff", label: "Plaintiff" },
+  { key: "caseType", label: "Case Type" },
+  { key: "courtType", label: "Court Type" },
+  { key: "branch", label: "Branch" },
+  { key: "dateFiled", label: "Date Filed" },
+];
+
 export default function AdminRecords() {
   const [tab, setTab] = useState("list");
   const [error, setError] = useState("");
@@ -24,6 +37,13 @@ export default function AdminRecords() {
   const [detailRecord, setDetailRecord] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
+
+  // Upload preview state
+  const [uploadRows, setUploadRows] = useState([]);
+  const [uploadFileName, setUploadFileName] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const uploadFileRef = useRef(null);
 
   const handleChange = (e) => {
     const { name, value, type: inputType, checked } = e.target;
@@ -44,24 +64,68 @@ export default function AdminRecords() {
     }
   };
 
-  const handleUpload = async (e) => {
+  const handleUploadParse = async (e) => {
     e.preventDefault();
     setError("");
     setSuccess("");
-    const file = fileRef.current?.files?.[0];
+    const file = uploadFileRef.current?.files?.[0];
     if (!file) return setError("Select a file");
 
     const formData = new FormData();
     formData.append("file", file);
+    setUploading(true);
     try {
-      const res = await api.post("/records/ocr-upload", formData, {
+      const res = await api.post("/records/upload-parse", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      setSuccess(res.data.message);
-      fileRef.current.value = "";
-      setRefreshKey((k) => k + 1);
+      setUploadRows(res.data.rows || []);
+      setUploadFileName(res.data.fileName || file.name);
+      setSuccess(`Extracted ${res.data.rows?.length || 0} row(s) from ${file.name}`);
+      if (uploadFileRef.current) uploadFileRef.current.value = "";
     } catch (err) {
       setError(err.response?.data?.message || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleCellChange = useCallback((rowIdx, key, value) => {
+    setUploadRows((prev) => {
+      const updated = [...prev];
+      updated[rowIdx] = { ...updated[rowIdx], [key]: value };
+      return updated;
+    });
+  }, []);
+
+  const handleDeleteRow = useCallback((rowIdx) => {
+    setUploadRows((prev) => prev.filter((_, i) => i !== rowIdx));
+  }, []);
+
+  const handleAddRow = useCallback(() => {
+    setUploadRows((prev) => [
+      ...prev,
+      { type: "Individual", lastName: "", firstName: "", middleName: "", companyName: "", caseNo: "", plaintiff: "", caseType: "", courtType: "", branch: "", dateFiled: "" },
+    ]);
+  }, []);
+
+  const handleSaveAll = async () => {
+    setError("");
+    setSuccess("");
+    if (uploadRows.length === 0) return setError("No rows to save");
+    setSaving(true);
+    try {
+      const res = await api.post("/records/bulk-insert", { records: uploadRows });
+      setSuccess(res.data.message);
+      if (res.data.errors?.length) {
+        setError(`Some rows failed: ${res.data.errors.map((e) => `Row ${e.row}: ${e.message}`).join("; ")}`);
+      }
+      setUploadRows([]);
+      setUploadFileName("");
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      setError(err.response?.data?.message || "Save failed");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -84,6 +148,7 @@ export default function AdminRecords() {
     {
       key: "name",
       label: "Name / Company",
+      sortable: false,
       render: (r) =>
         r.type === "Individual"
           ? [r.firstName, r.middleName, r.lastName].filter(Boolean).join(" ")
@@ -96,6 +161,7 @@ export default function AdminRecords() {
     {
       key: "actions",
       label: "Actions",
+      sortable: false,
       render: (r) => (
         <button
           onClick={(e) => { e.stopPropagation(); handleViewRecord(r); }}
@@ -116,23 +182,23 @@ export default function AdminRecords() {
       {success && <div className="bg-success/10 text-success text-sm rounded p-3 mb-4">{success}</div>}
 
       <div className="flex gap-2 mb-4">
-        {["list", "add", "ocr"].map((t) => (
+        {["list", "add", "upload"].map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => { setTab(t); setError(""); setSuccess(""); }}
             className={`px-4 py-2 rounded text-sm font-medium capitalize ${
               tab === t
                 ? "bg-sidebar-active text-sidebar-active-text"
                 : "bg-card-bg text-sidebar-text border border-card-border"
             }`}
           >
-            {t === "ocr" ? "OCR Upload" : t === "add" ? "Add Record" : "All Records"}
+            {t === "upload" ? "File Upload" : t === "add" ? "Add Record" : "All Records"}
           </button>
         ))}
       </div>
 
       {tab === "list" && (
-        <DataTable columns={columns} fetchUrl="/records" api={api} refreshKey={refreshKey} />
+        <DataTable columns={columns} fetchUrl="/records" api={api} refreshKey={refreshKey} exportable exportUrl="/export/records" />
       )}
 
       {tab === "add" && (
@@ -273,19 +339,115 @@ export default function AdminRecords() {
         </form>
       )}
 
-      {tab === "ocr" && (
-        <form onSubmit={handleUpload} className="bg-card-bg border border-card-border rounded-lg p-4 max-w-lg space-y-3">
-          <p className="text-sm text-sidebar-text">Upload a PDF or image file to extract records using OCR.</p>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".pdf,.png,.jpg,.jpeg"
-            className="block w-full text-sm text-sidebar-text file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-nav-bg file:text-primary-on-dark hover:file:opacity-90"
-          />
-          <button type="submit" className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90">
-            Upload & Process
-          </button>
-        </form>
+      {tab === "upload" && (
+        <div className="space-y-4">
+          {/* Upload form */}
+          <form onSubmit={handleUploadParse} className="bg-card-bg border border-card-border rounded-lg p-4 space-y-3">
+            <p className="text-sm text-sidebar-text">
+              Upload an Excel file (.xls, .xlsx) or PDF (including scanned PDFs) to extract records.
+              You can review and edit the data before saving.
+            </p>
+            <div className="flex items-center gap-3">
+              <input
+                ref={uploadFileRef}
+                type="file"
+                accept=".xls,.xlsx,.pdf,.png,.jpg,.jpeg"
+                className="block text-sm text-sidebar-text file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-nav-bg file:text-primary-on-dark hover:file:opacity-90"
+              />
+              <button
+                type="submit"
+                disabled={uploading}
+                className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
+              >
+                {uploading ? "Processing..." : "Upload & Extract"}
+              </button>
+            </div>
+          </form>
+
+          {/* Editable table preview */}
+          {uploadRows.length > 0 && (
+            <div className="bg-card-bg border border-card-border rounded-lg overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-card-border">
+                <div className="text-sm font-bold text-primary-header">
+                  Preview: {uploadFileName} — {uploadRows.length} row(s)
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleAddRow}
+                    className="px-3 py-1.5 rounded text-xs font-medium bg-card-bg text-sidebar-text border border-card-border hover:opacity-90"
+                  >
+                    + Add Row
+                  </button>
+                  <button
+                    onClick={() => { setUploadRows([]); setUploadFileName(""); }}
+                    className="px-3 py-1.5 rounded text-xs font-medium bg-error/10 text-error border border-error/20 hover:opacity-90"
+                  >
+                    Clear All
+                  </button>
+                  <button
+                    onClick={handleSaveAll}
+                    disabled={saving}
+                    className="px-4 py-1.5 rounded text-xs font-medium bg-btn-primary text-btn-primary-text hover:opacity-90 disabled:opacity-50"
+                  >
+                    {saving ? "Saving..." : `Save All (${uploadRows.length})`}
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-primary-header text-primary-on-dark">
+                      <th className="px-2 py-2 text-left text-xs font-semibold w-8">#</th>
+                      {UPLOAD_COLUMNS.map((col) => (
+                        <th key={col.key} className="px-2 py-2 text-left text-xs font-semibold whitespace-nowrap">
+                          {col.label}
+                        </th>
+                      ))}
+                      <th className="px-2 py-2 text-center text-xs font-semibold w-16">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {uploadRows.map((row, idx) => (
+                      <tr
+                        key={idx}
+                        className={`border-b border-card-border ${idx % 2 === 0 ? "bg-page-bg" : "bg-card-bg"} hover:bg-primary-header/5`}
+                      >
+                        <td className="px-2 py-1 text-xs text-sidebar-text">{idx + 1}</td>
+                        {UPLOAD_COLUMNS.map((col) => (
+                          <td key={col.key} className="px-1 py-1">
+                            <input
+                              value={row[col.key] || ""}
+                              onChange={(e) => handleCellChange(idx, col.key, e.target.value)}
+                              className="w-full border border-card-border rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary-header bg-transparent"
+                            />
+                          </td>
+                        ))}
+                        <td className="px-2 py-1 text-center">
+                          <button
+                            onClick={() => handleDeleteRow(idx)}
+                            className="text-error hover:text-error/80 text-xs font-medium"
+                            title="Remove row"
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex justify-end px-4 py-3 border-t border-card-border">
+                <button
+                  onClick={handleSaveAll}
+                  disabled={saving}
+                  className="px-6 py-2 rounded text-sm font-medium bg-btn-primary text-btn-primary-text hover:opacity-90 disabled:opacity-50"
+                >
+                  {saving ? "Saving..." : `Save All Records (${uploadRows.length})`}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Record Detail Modal */}
@@ -350,100 +512,130 @@ export default function AdminRecords() {
                 {/* Access Requests */}
                 <div className="bg-card-bg border border-card-border rounded p-4 mb-4">
                   <h4 className="font-bold text-primary-header text-sm mb-3">Access Requests</h4>
-                  {detailRecord.record.unlockRequests?.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead className="bg-nav-bg text-primary-on-dark">
-                          <tr>
-                            <th className="px-3 py-2 text-left">Requestor</th>
-                            <th className="px-3 py-2 text-left">Date</th>
-                            <th className="px-3 py-2 text-left">Reason</th>
-                            <th className="px-3 py-2 text-left">Status</th>
-                            <th className="px-3 py-2 text-left">Reviewed At</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {detailRecord.record.unlockRequests.map((ur) => (
-                            <tr key={ur.id} className="border-t border-card-border">
-                              <td className="px-3 py-2">{[ur.requester?.firstName, ur.requester?.lastName].filter(Boolean).join(" ") || ur.requester?.email || "Unknown"}</td>
-                              <td className="px-3 py-2">{new Date(ur.createdAt).toLocaleString()}</td>
-                              <td className="px-3 py-2 max-w-xs truncate">{ur.reason || "—"}</td>
-                              <td className="px-3 py-2">
-                                <span className={`px-2 py-0.5 rounded text-xs font-medium ${ur.status === "approved" ? "bg-success/10 text-success" : ur.status === "denied" ? "bg-error/10 text-error" : "bg-warning/10 text-warning"}`}>
-                                  {ur.status}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2">{ur.reviewedAt ? new Date(ur.reviewedAt).toLocaleString() : "—"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-sidebar-text">No access requests.</p>
-                  )}
+                  <DataTable
+                    columns={[
+                      {
+                        key: "requestor",
+                        label: "Requestor",
+                        sortable: false,
+                        render: (ur) => [ur.requester?.firstName, ur.requester?.lastName].filter(Boolean).join(" ") || ur.requester?.email || "Unknown",
+                      },
+                      {
+                        key: "createdAt",
+                        label: "Date",
+                        render: (ur) => new Date(ur.createdAt).toLocaleString(),
+                      },
+                      { key: "reason", label: "Reason", render: (ur) => ur.reason || "—" },
+                      {
+                        key: "status",
+                        label: "Status",
+                        render: (ur) => (
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${ur.status === "approved" ? "bg-success/10 text-success" : ur.status === "denied" ? "bg-error/10 text-error" : "bg-warning/10 text-warning"}`}>
+                            {ur.status}
+                          </span>
+                        ),
+                      },
+                      {
+                        key: "reviewedAt",
+                        label: "Reviewed At",
+                        render: (ur) => ur.reviewedAt ? new Date(ur.reviewedAt).toLocaleString() : "—",
+                      },
+                    ]}
+                    fetchFn={() =>
+                      Promise.resolve({
+                        data: detailRecord.record.unlockRequests || [],
+                        total: detailRecord.record.unlockRequests?.length || 0,
+                        page: 1,
+                        totalPages: 1,
+                      })
+                    }
+                    searchable={false}
+                    sortable={false}
+                    pageSize={100}
+                    emptyMessage="No access requests."
+                  />
                 </div>
 
                 {/* Search History */}
                 <div className="bg-card-bg border border-card-border rounded p-4 mb-4">
                   <h4 className="font-bold text-primary-header text-sm mb-3">Search History</h4>
-                  {detailRecord.searchHistory?.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead className="bg-nav-bg text-primary-on-dark">
-                          <tr>
-                            <th className="px-3 py-2 text-left">User</th>
-                            <th className="px-3 py-2 text-left">Affiliate</th>
-                            <th className="px-3 py-2 text-left">Date</th>
-                            <th className="px-3 py-2 text-left">Billed</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {detailRecord.searchHistory.map((sh) => (
-                            <tr key={sh.id} className="border-t border-card-border">
-                              <td className="px-3 py-2">{[sh.user?.firstName, sh.user?.lastName].filter(Boolean).join(" ") || sh.user?.email || "Unknown"}</td>
-                              <td className="px-3 py-2">{sh.user?.client?.name || "—"}</td>
-                              <td className="px-3 py-2">{new Date(sh.createdAt).toLocaleString()}</td>
-                              <td className="px-3 py-2">{sh.isBilled ? "Yes" : "No"}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-sidebar-text">No search history found.</p>
-                  )}
+                  <DataTable
+                    columns={[
+                      {
+                        key: "user",
+                        label: "User",
+                        sortable: false,
+                        render: (sh) => [sh.user?.firstName, sh.user?.lastName].filter(Boolean).join(" ") || sh.user?.email || "Unknown",
+                      },
+                      {
+                        key: "affiliate",
+                        label: "Affiliate",
+                        sortable: false,
+                        render: (sh) => sh.user?.client?.name || "—",
+                      },
+                      {
+                        key: "createdAt",
+                        label: "Date",
+                        render: (sh) => new Date(sh.createdAt).toLocaleString(),
+                      },
+                      {
+                        key: "isBilled",
+                        label: "Billed",
+                        render: (sh) => sh.isBilled ? "Yes" : "No",
+                      },
+                    ]}
+                    fetchFn={() =>
+                      Promise.resolve({
+                        data: detailRecord.searchHistory || [],
+                        total: detailRecord.searchHistory?.length || 0,
+                        page: 1,
+                        totalPages: 1,
+                      })
+                    }
+                    searchable={false}
+                    sortable={false}
+                    pageSize={100}
+                    emptyMessage="No search history found."
+                  />
                 </div>
 
                 {/* Lock History */}
                 <div className="bg-card-bg border border-card-border rounded p-4">
                   <h4 className="font-bold text-primary-header text-sm mb-3">Lock History</h4>
-                  {detailRecord.record.lockHistories?.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead className="bg-nav-bg text-primary-on-dark">
-                          <tr>
-                            <th className="px-3 py-2 text-left">User</th>
-                            <th className="px-3 py-2 text-left">Affiliate</th>
-                            <th className="px-3 py-2 text-left">Action</th>
-                            <th className="px-3 py-2 text-left">Date</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {detailRecord.record.lockHistories.map((lh) => (
-                            <tr key={lh.id} className="border-t border-card-border">
-                              <td className="px-3 py-2">{[lh.user?.firstName, lh.user?.lastName].filter(Boolean).join(" ") || lh.user?.email || "Unknown"}</td>
-                              <td className="px-3 py-2">{lh.user?.client?.name || "—"}</td>
-                              <td className="px-3 py-2">{lh.action}</td>
-                              <td className="px-3 py-2">{new Date(lh.createdAt).toLocaleString()}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-sidebar-text">No lock history.</p>
-                  )}
+                  <DataTable
+                    columns={[
+                      {
+                        key: "user",
+                        label: "User",
+                        sortable: false,
+                        render: (lh) => [lh.user?.firstName, lh.user?.lastName].filter(Boolean).join(" ") || lh.user?.email || "Unknown",
+                      },
+                      {
+                        key: "affiliate",
+                        label: "Affiliate",
+                        sortable: false,
+                        render: (lh) => lh.user?.client?.name || "—",
+                      },
+                      { key: "action", label: "Action" },
+                      {
+                        key: "createdAt",
+                        label: "Date",
+                        render: (lh) => new Date(lh.createdAt).toLocaleString(),
+                      },
+                    ]}
+                    fetchFn={() =>
+                      Promise.resolve({
+                        data: detailRecord.record.lockHistories || [],
+                        total: detailRecord.record.lockHistories?.length || 0,
+                        page: 1,
+                        totalPages: 1,
+                      })
+                    }
+                    searchable={false}
+                    sortable={false}
+                    pageSize={100}
+                    emptyMessage="No lock history."
+                  />
                 </div>
 
                 <div className="flex justify-end mt-4">

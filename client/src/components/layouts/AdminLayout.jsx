@@ -5,6 +5,7 @@ import api from "../../api/axios";
 import ThemeToggle from "../ThemeToggle";
 
 const adminLinks = [
+  { to: "/admin/dashboard", label: "Dashboard" },
   { to: "/admin/clients", label: "Manage Clients" },
   { to: "/admin/branches", label: "Affiliate Branches" },
   { to: "/admin/access", label: "Profile & Access" },
@@ -89,6 +90,11 @@ export default function AdminLayout() {
     setShowNotifPanel(false);
     if (notif.type === "NEW_REGISTRATION") {
       navigate("/admin/access");
+    } else if (
+      notif.type === "UNLOCK_REQUEST_NEW" ||
+      notif.type === "UNLOCK_REQUEST_RECEIVED"
+    ) {
+      navigate("/admin/unlocking", { state: { requestId: notif.relatedId } });
     }
   };
 

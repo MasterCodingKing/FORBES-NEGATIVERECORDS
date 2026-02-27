@@ -1,17 +1,18 @@
 const { prisma } = require("../models");
 const { logAudit } = require("../middleware/audit.middleware");
 const bcrypt = require("bcryptjs");
-
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 100;
+const { parsePaginationParams, paginatedResponse } = require("../utils/pagination");
 
 const listPending = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const skip = (page - 1) * limit;
+    const { page, limit, skip, where, orderBy } = parsePaginationParams(req.query, {
+      searchableFields: ["firstName", "lastName", "email", "username"],
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "firstName", "lastName", "email"],
+    });
 
-    const where = { isApproved: 0 };
+    where.isApproved = 0;
 
     const [data, total] = await Promise.all([
       prisma.user.findMany({
@@ -23,7 +24,7 @@ const listPending = async (req, res) => {
         },
         skip,
         take: limit,
-        orderBy: { createdAt: "desc" },
+        orderBy,
       }),
       prisma.user.count({ where }),
     ]);
@@ -31,13 +32,7 @@ const listPending = async (req, res) => {
     // Remove passwordHash from response
     const sanitized = data.map(({ passwordHash, ...rest }) => rest);
 
-    return res.json({
-      data: sanitized,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return res.json(paginatedResponse(sanitized, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -45,20 +40,12 @@ const listPending = async (req, res) => {
 
 const listAll = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const skip = (page - 1) * limit;
-    const search = req.query.search || "";
-
-    const where = {};
-    if (search) {
-      where.OR = [
-        { firstName: { contains: search, mode: "insensitive" } },
-        { lastName: { contains: search, mode: "insensitive" } },
-        { email: { contains: search, mode: "insensitive" } },
-        { username: { contains: search, mode: "insensitive" } },
-      ];
-    }
+    const { page, limit, skip, where, orderBy } = parsePaginationParams(req.query, {
+      searchableFields: ["firstName", "lastName", "email", "username"],
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "firstName", "lastName", "email", "username"],
+    });
 
     const [data, total] = await Promise.all([
       prisma.user.findMany({
@@ -70,20 +57,14 @@ const listAll = async (req, res) => {
         },
         skip,
         take: limit,
-        orderBy: { createdAt: "desc" },
+        orderBy,
       }),
       prisma.user.count({ where }),
     ]);
 
     const sanitized = data.map(({ passwordHash, ...rest }) => rest);
 
-    return res.json({
-      data: sanitized,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return res.json(paginatedResponse(sanitized, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }

@@ -59,6 +59,7 @@ model User {
   @@index([branchId])
   @@index([roleId])
   @@index([isApproved])
+  @@index([createdAt])
   @@map("users")
 }
 
@@ -90,8 +91,10 @@ model Client {
   creditTransactions CreditTransaction[]
 
   @@index([clientCode])
+  @@index([name])
   @@index([isActive])
   @@index([billingType])
+  @@index([createdAt])
   @@map("clients")
 }
 
@@ -140,6 +143,9 @@ model AuditLog {
 
   user User @relation(fields: [userId], references: [id])
 
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
   @@map("audit_logs")
 }
 
@@ -178,9 +184,15 @@ model NegativeRecord {
   lockHistories  LockHistory[]
 
   @@index([lastName])
+  @@index([firstName])
+  @@index([middleName])
   @@index([companyName])
   @@index([caseNo])
+  @@index([plaintiff])
+  @@index([source])
   @@index([type])
+  @@index([createdAt])
+  @@index([lastName, firstName, middleName])
   @@map("negative_records")
 }
 
@@ -249,6 +261,8 @@ model UnlockRequest {
 
   @@index([requestedBy])
   @@index([status])
+  @@index([createdAt])
+  @@index([recordId])
   @@map("unlock_requests")
 }
 
@@ -269,6 +283,7 @@ model News {
 
   creator User @relation(fields: [createdBy], references: [id])
 
+  @@index([createdAt])
   @@map("news")
 }
 
@@ -286,6 +301,7 @@ model CreditTransaction {
   performer User   @relation(fields: [performedBy], references: [id])
 
   @@index([clientId])
+  @@index([createdAt])
   @@map("credit_transactions")
 }
 

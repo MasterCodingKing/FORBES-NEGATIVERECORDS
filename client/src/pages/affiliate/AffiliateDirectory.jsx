@@ -8,6 +8,7 @@ export default function AffiliateDirectory() {
     {
       key: "branches",
       label: "Branches",
+      sortable: false,
       render: (r) =>
         r.SubDomains && r.SubDomains.length > 0
           ? r.SubDomains.map((b) => b.name).join(", ")
@@ -16,6 +17,7 @@ export default function AffiliateDirectory() {
     {
       key: "contacts",
       label: "Contacts",
+      sortable: false,
       render: (r) =>
         r.Users && r.Users.length > 0
           ? r.Users.map((u) => [u.firstName, u.lastName].filter(Boolean).join(" ")).join(", ")

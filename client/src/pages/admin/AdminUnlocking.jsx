@@ -1,10 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import api from "../../api/axios";
 import DataTable from "../../components/DataTable";
 
 export default function AdminUnlocking() {
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // View modal
+  const [viewTarget, setViewTarget] = useState(null);
 
   // Approve modal
   const [approveTarget, setApproveTarget] = useState(null);
@@ -28,6 +34,17 @@ export default function AdminUnlocking() {
       ? [rec.firstName, rec.middleName, rec.lastName].filter(Boolean).join(" ") || "—"
       : rec.companyName || "—";
   };
+
+  // Auto-open view modal when navigated from a notification
+  useEffect(() => {
+    const requestId = location.state?.requestId;
+    if (!requestId) return;
+    // Clear state so refreshes don't re-trigger
+    navigate(location.pathname, { replace: true, state: {} });
+    api.get(`/unlock-requests/${requestId}`)
+      .then((res) => setViewTarget(res.data))
+      .catch(() => {});
+  }, [location.state?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleApprove = async () => {
     if (!approveTarget) return;
@@ -74,6 +91,7 @@ export default function AdminUnlocking() {
     {
       key: "requester",
       label: "Requested By",
+      sortable: false,
       render: (r) => {
         const u = r.requester;
         return u ? [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email : "Unknown";
@@ -82,17 +100,20 @@ export default function AdminUnlocking() {
     {
       key: "affiliate",
       label: "Affiliate",
+      sortable: false,
       render: (r) => r.requester?.client?.name || "—",
     },
     { key: "recordId", label: "Record ID" },
     {
       key: "recordName",
       label: "Record Name",
+      sortable: false,
       render: (r) => getRecordName(r.negativeRecord),
     },
     {
       key: "lockOwner",
       label: "Lock Owner",
+      sortable: false,
       render: (r) => {
         const lock = r.negativeRecord?.recordLock;
         if (!lock?.user) return "—";
@@ -122,23 +143,32 @@ export default function AdminUnlocking() {
     {
       key: "actions",
       label: "Actions",
-      render: (r) =>
-        r.status === "pending" ? (
-          <div className="flex gap-2">
-            <button
-              onClick={() => { setError(""); setApproveTarget(r); }}
-              className="text-success text-xs font-medium hover:underline"
-            >
-              Approve
-            </button>
-            <button
-              onClick={() => { setError(""); setDenialReason(""); setDenyTarget(r); }}
-              className="text-error text-xs font-medium hover:underline"
-            >
-              Deny
-            </button>
-          </div>
-        ) : null,
+      render: (r) => (
+        <div className="flex gap-2 items-center">
+          <button
+            onClick={() => { setError(""); setViewTarget(r); }}
+            className="text-primary-header text-xs font-medium hover:underline"
+          >
+            View
+          </button>
+          {r.status === "pending" && (
+            <>
+              <button
+                onClick={() => { setError(""); setApproveTarget(r); }}
+                className="text-success text-xs font-medium hover:underline"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => { setError(""); setDenialReason(""); setDenyTarget(r); }}
+                className="text-error text-xs font-medium hover:underline"
+              >
+                Deny
+              </button>
+            </>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -147,7 +177,147 @@ export default function AdminUnlocking() {
       <h2 className="text-xl font-bold text-primary-header mb-4">Unlocking Requests</h2>
       {error && <div className="bg-error/10 text-error text-sm rounded p-3 mb-4">{error}</div>}
 
-      <DataTable columns={columns} fetchUrl="/unlock-requests/all" api={api} refreshKey={refreshKey} searchable={false} />
+      <DataTable columns={columns} fetchUrl="/unlock-requests/all" api={api} refreshKey={refreshKey} searchable={false} exportable exportUrl="/export/unlock-requests" />
+
+      {/* ── View Detail Modal ── */}
+      {viewTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-page-bg rounded-xl shadow-xl w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-primary-header">Unlock Request Details</h3>
+              <button
+                onClick={() => setViewTarget(null)}
+                className="text-sidebar-text hover:text-primary-header text-xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Status badge */}
+            <div className="mb-4">
+              <span
+                className={`text-xs font-semibold px-3 py-1 rounded-full ${
+                  viewTarget.status === "approved"
+                    ? "bg-success/15 text-success"
+                    : viewTarget.status === "denied"
+                    ? "bg-error/15 text-error"
+                    : "bg-warning/15 text-warning"
+                }`}
+              >
+                {viewTarget.status.toUpperCase()}
+              </span>
+            </div>
+
+            <div className="space-y-4 text-sm">
+              {/* Requester */}
+              <div className="bg-card-bg border border-card-border rounded-lg p-4">
+                <h4 className="font-semibold text-primary-header mb-2">Requestor Details</h4>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  <div>
+                    <span className="text-sidebar-text">Name</span>
+                    <p className="font-medium text-body-text">
+                      {viewTarget.requester
+                        ? [viewTarget.requester.firstName, viewTarget.requester.lastName].filter(Boolean).join(" ") || "—"
+                        : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Affiliate</span>
+                    <p className="font-medium text-body-text">{viewTarget.requester?.client?.name || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Branch</span>
+                    <p className="font-medium text-body-text">{viewTarget.requester?.branch?.name || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Email</span>
+                    <p className="font-medium text-body-text">{viewTarget.requester?.email || "—"}</p>
+                  </div>
+                  {viewTarget.requester?.telephone && (
+                    <div>
+                      <span className="text-sidebar-text">Tel</span>
+                      <p className="font-medium text-body-text">{viewTarget.requester.telephone}</p>
+                    </div>
+                  )}
+                  {viewTarget.requester?.mobileNumber && (
+                    <div>
+                      <span className="text-sidebar-text">Mobile</span>
+                      <p className="font-medium text-body-text">{viewTarget.requester.mobileNumber}</p>
+                    </div>
+                  )}
+                  {viewTarget.requester?.position && (
+                    <div className="col-span-2">
+                      <span className="text-sidebar-text">Position</span>
+                      <p className="font-medium text-body-text">{viewTarget.requester.position}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Record */}
+              <div className="bg-card-bg border border-card-border rounded-lg p-4">
+                <h4 className="font-semibold text-primary-header mb-2">Record Details</h4>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  <div>
+                    <span className="text-sidebar-text">Record ID</span>
+                    <p className="font-medium text-body-text">#{viewTarget.recordId}</p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Record Name</span>
+                    <p className="font-medium text-body-text">{getRecordName(viewTarget.negativeRecord)}</p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Lock Owner</span>
+                    <p className="font-medium text-body-text">
+                      {(() => {
+                        const lock = viewTarget.negativeRecord?.recordLock;
+                        if (!lock?.user) return "—";
+                        const u = lock.user;
+                        return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email;
+                      })()}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Date Submitted</span>
+                    <p className="font-medium text-body-text">{new Date(viewTarget.createdAt).toLocaleString()}</p>
+                  </div>
+                </div>
+                {viewTarget.reason && (
+                  <div className="mt-2 pt-2 border-t border-card-border">
+                    <span className="text-sidebar-text">Reason for Access</span>
+                    <p className="font-medium text-body-text mt-0.5">{viewTarget.reason}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-5 justify-end">
+              {viewTarget.status === "pending" && (
+                <>
+                  <button
+                    onClick={() => { setViewTarget(null); setApproveTarget(viewTarget); }}
+                    className="bg-success text-white px-4 py-2 rounded text-sm font-medium hover:opacity-90"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => { setViewTarget(null); setDenialReason(""); setDenyTarget(viewTarget); }}
+                    className="bg-error text-white px-4 py-2 rounded text-sm font-medium hover:opacity-90"
+                  >
+                    Deny
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => setViewTarget(null)}
+                className="px-4 py-2 rounded text-sm font-medium bg-card-bg text-sidebar-text border border-card-border hover:bg-sidebar-bg"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Approve Confirmation Modal */}
       {approveTarget && (

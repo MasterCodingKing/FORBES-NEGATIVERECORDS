@@ -75,6 +75,21 @@ export default function AffiliateLayout() {
     }
   };
 
+  const handleNotifClick = async (n) => {
+    if (n.isRead === 0) {
+      await markAsRead(n.id);
+    }
+    setShowNotifDropdown(false);
+    if (
+      n.type === "UNLOCK_REQUEST" ||
+      n.type === "UNLOCK_REQUEST_RECEIVED" ||
+      n.type === "UNLOCK_REQUEST_APPROVED" ||
+      n.type === "UNLOCK_REQUEST_DENIED"
+    ) {
+      navigate("/affiliate/unlocking", { state: { requestId: n.relatedId } });
+    }
+  };
+
   const handleLogout = () => {
     logout();
     navigate("/login");
@@ -128,7 +143,7 @@ export default function AffiliateLayout() {
                     notifications.map((n) => (
                       <div
                         key={n.id}
-                        onClick={() => n.isRead === 0 && markAsRead(n.id)}
+                        onClick={() => handleNotifClick(n)}
                         className={`px-4 py-3 border-b border-card-border cursor-pointer hover:bg-card-bg transition-colors ${
                           n.isRead === 0 ? "bg-warning/5" : ""
                         }`}

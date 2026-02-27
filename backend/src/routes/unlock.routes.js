@@ -16,4 +16,7 @@ router.get("/all", auth, requireAdmin, controller.listAllRequests);
 // Review: admin OR lock owner (authorization checked inside controller)
 router.patch("/:id/review", auth, controller.reviewRequest);
 
+// Get single request (admin, requester, or lock owner)
+router.get("/:id", auth, controller.getRequest);
+
 module.exports = router;

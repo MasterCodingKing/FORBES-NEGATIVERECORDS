@@ -28,8 +28,14 @@ const seedRolesAndAdmin = async () => {
       where: { name: ROLES.SUPER_ADMIN },
     });
 
+    if (!superAdminRole) {
+      console.error("Super Admin role not found after seeding!");
+      return;
+    }
+
     const existingAdmin = await prisma.user.findUnique({
       where: { email: "admin@negrect.com" },
+      include: { role: true },
     });
 
     if (!existingAdmin) {
@@ -46,6 +52,13 @@ const seedRolesAndAdmin = async () => {
         },
       });
       console.log("Default Super Admin created: admin@negrect.com / admin123");
+    } else if (!existingAdmin.role || existingAdmin.role.id !== superAdminRole.id) {
+      // If admin exists but doesn't have the right role, update it
+      await prisma.user.update({
+        where: { email: "admin@negrect.com" },
+        data: { roleId: superAdminRole.id, isApproved: 1 },
+      });
+      console.log("Updated admin user with Super Admin role");
     }
   } catch (err) {
     console.error("Seeder error", err);

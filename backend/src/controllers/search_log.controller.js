@@ -1,33 +1,23 @@
 const { prisma } = require("../models");
-
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 100;
+const { parsePaginationParams, paginatedResponse } = require("../utils/pagination");
 
 const getMyLogs = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const skip = (page - 1) * limit;
+    const { page, limit, skip, where, orderBy } = parsePaginationParams(req.query, {
+      searchableFields: ["searchTerm"],
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "searchType", "fee"],
+    });
 
-    const where = { userId: req.user.id };
+    where.userId = req.user.id;
 
     const [data, total] = await Promise.all([
-      prisma.searchLog.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: "desc" },
-      }),
+      prisma.searchLog.findMany({ where, skip, take: limit, orderBy }),
       prisma.searchLog.count({ where }),
     ]);
 
-    return res.json({
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return res.json(paginatedResponse(data, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -35,9 +25,12 @@ const getMyLogs = async (req, res) => {
 
 const getClientAffiliateLogs = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const skip = (page - 1) * limit;
+    const { page, limit, skip, where, orderBy } = parsePaginationParams(req.query, {
+      searchableFields: ["searchTerm"],
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "searchType", "fee"],
+    });
 
     const currentUser = await prisma.user.findUnique({
       where: { id: req.user.id },
@@ -46,9 +39,10 @@ const getClientAffiliateLogs = async (req, res) => {
       return res.status(403).json({ message: "No client assigned" });
     }
 
-    const where = { clientId: currentUser.clientId };
+    where.clientId = currentUser.clientId;
     if (req.query.from && req.query.to) {
       where.createdAt = {
+        ...(where.createdAt || {}),
         gte: new Date(req.query.from),
         lte: new Date(req.query.to),
       };
@@ -64,18 +58,12 @@ const getClientAffiliateLogs = async (req, res) => {
         },
         skip,
         take: limit,
-        orderBy: { createdAt: "desc" },
+        orderBy,
       }),
       prisma.searchLog.count({ where }),
     ]);
 
-    return res.json({
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return res.json(paginatedResponse(data, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }

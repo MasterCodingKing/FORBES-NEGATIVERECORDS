@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import api from "../../api/axios";
 import DataTable from "../../components/DataTable";
 
@@ -6,6 +7,11 @@ export default function AffiliateUnlocking() {
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState("my");
   const [refreshKey, setRefreshKey] = useState(0);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // View modal
+  const [viewTarget, setViewTarget] = useState(null);
 
   // Approve modal
   const [approveTarget, setApproveTarget] = useState(null);
@@ -70,6 +76,20 @@ export default function AffiliateUnlocking() {
       : rec.companyName || "—";
   };
 
+  // Auto-open view modal when navigated from a notification
+  useEffect(() => {
+    const requestId = location.state?.requestId;
+    if (!requestId) return;
+    navigate(location.pathname, { replace: true, state: {} });
+    api.get(`/unlock-requests/${requestId}`)
+      .then((res) => {
+        // Switch to the correct tab based on the request
+        const data = res.data;
+        setViewTarget(data);
+      })
+      .catch(() => {});
+  }, [location.state?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Columns for "My Requests" tab
   const myColumns = [
     { key: "id", label: "ID" },
@@ -98,6 +118,18 @@ export default function AffiliateUnlocking() {
       ),
     },
     { key: "createdAt", label: "Date", render: (r) => new Date(r.createdAt).toLocaleString() },
+    {
+      key: "actions",
+      label: "Actions",
+      render: (r) => (
+        <button
+          onClick={() => { setError(""); setViewTarget(r); }}
+          className="text-primary-header text-xs font-medium hover:underline"
+        >
+          View
+        </button>
+      ),
+    },
   ];
 
   // Columns for "Requests for My Records" tab
@@ -144,23 +176,32 @@ export default function AffiliateUnlocking() {
     {
       key: "actions",
       label: "Actions",
-      render: (r) =>
-        r.status === "pending" ? (
-          <div className="flex gap-2">
-            <button
-              onClick={() => { setError(""); setApproveTarget(r); }}
-              className="text-success text-xs font-medium hover:underline"
-            >
-              Approve
-            </button>
-            <button
-              onClick={() => { setError(""); setDenialReason(""); setDenyTarget(r); }}
-              className="text-error text-xs font-medium hover:underline"
-            >
-              Deny
-            </button>
-          </div>
-        ) : null,
+      render: (r) => (
+        <div className="flex gap-2 items-center">
+          <button
+            onClick={() => { setError(""); setViewTarget(r); }}
+            className="text-primary-header text-xs font-medium hover:underline"
+          >
+            View
+          </button>
+          {r.status === "pending" && (
+            <>
+              <button
+                onClick={() => { setError(""); setApproveTarget(r); }}
+                className="text-success text-xs font-medium hover:underline"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => { setError(""); setDenialReason(""); setDenyTarget(r); }}
+                className="text-error text-xs font-medium hover:underline"
+              >
+                Deny
+              </button>
+            </>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -210,6 +251,134 @@ export default function AffiliateUnlocking() {
           refreshKey={refreshKey}
           searchable={false}
         />
+      )}
+
+      {/* ── View Detail Modal ── */}
+      {viewTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-page-bg rounded-xl shadow-xl w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-primary-header">Unlock Request Details</h3>
+              <button
+                onClick={() => setViewTarget(null)}
+                className="text-sidebar-text hover:text-primary-header text-xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Status badge */}
+            <div className="mb-4">
+              <span
+                className={`text-xs font-semibold px-3 py-1 rounded-full ${
+                  viewTarget.status === "approved"
+                    ? "bg-success/15 text-success"
+                    : viewTarget.status === "denied"
+                    ? "bg-error/15 text-error"
+                    : "bg-warning/15 text-warning"
+                }`}
+              >
+                {viewTarget.status.toUpperCase()}
+              </span>
+            </div>
+
+            <div className="space-y-4 text-sm">
+              {/* Requester */}
+              {viewTarget.requester && (
+                <div className="bg-card-bg border border-card-border rounded-lg p-4">
+                  <h4 className="font-semibold text-primary-header mb-2">Requestor Details</h4>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                    <div>
+                      <span className="text-sidebar-text">Name</span>
+                      <p className="font-medium text-body-text">
+                        {[viewTarget.requester.firstName, viewTarget.requester.lastName].filter(Boolean).join(" ") || "—"}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-sidebar-text">Affiliate</span>
+                      <p className="font-medium text-body-text">{viewTarget.requester.client?.name || "—"}</p>
+                    </div>
+                    <div>
+                      <span className="text-sidebar-text">Branch</span>
+                      <p className="font-medium text-body-text">{viewTarget.requester.branch?.name || "—"}</p>
+                    </div>
+                    <div>
+                      <span className="text-sidebar-text">Email</span>
+                      <p className="font-medium text-body-text">{viewTarget.requester.email || "—"}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Record */}
+              <div className="bg-card-bg border border-card-border rounded-lg p-4">
+                <h4 className="font-semibold text-primary-header mb-2">Record Details</h4>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  <div>
+                    <span className="text-sidebar-text">Record ID</span>
+                    <p className="font-medium text-body-text">#{viewTarget.recordId}</p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Record Name</span>
+                    <p className="font-medium text-body-text">{getRecordName(viewTarget.negativeRecord)}</p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Lock Owner</span>
+                    <p className="font-medium text-body-text">
+                      {(() => {
+                        const lock = viewTarget.negativeRecord?.recordLock;
+                        if (!lock?.user) return "—";
+                        const u = lock.user;
+                        return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email;
+                      })()}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Date Submitted</span>
+                    <p className="font-medium text-body-text">{new Date(viewTarget.createdAt).toLocaleString()}</p>
+                  </div>
+                </div>
+                {viewTarget.reason && (
+                  <div className="mt-2 pt-2 border-t border-card-border">
+                    <span className="text-sidebar-text">Reason for Access</span>
+                    <p className="font-medium text-body-text mt-0.5">{viewTarget.reason}</p>
+                  </div>
+                )}
+                {viewTarget.status === "denied" && viewTarget.denialReason && (
+                  <div className="mt-2 pt-2 border-t border-card-border">
+                    <span className="text-sidebar-text text-error">Denial Reason</span>
+                    <p className="font-medium text-error mt-0.5">{viewTarget.denialReason}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex gap-2 mt-5 justify-end">
+              {viewTarget.status === "pending" && viewTarget.negativeRecord?.recordLock?.user && (
+                <>
+                  <button
+                    onClick={() => { setViewTarget(null); setApproveTarget(viewTarget); }}
+                    className="bg-success text-white px-4 py-2 rounded text-sm font-medium hover:opacity-90"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => { setViewTarget(null); setDenialReason(""); setDenyTarget(viewTarget); }}
+                    className="bg-error text-white px-4 py-2 rounded text-sm font-medium hover:opacity-90"
+                  >
+                    Deny
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => setViewTarget(null)}
+                className="px-4 py-2 rounded text-sm font-medium bg-card-bg text-sidebar-text border border-card-border hover:bg-sidebar-bg"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Approve Confirmation Modal */}

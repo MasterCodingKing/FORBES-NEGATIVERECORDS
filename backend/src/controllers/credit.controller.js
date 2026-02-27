@@ -1,8 +1,6 @@
 const { prisma } = require("../models");
 const { logAudit } = require("../middleware/audit.middleware");
-
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 100;
+const { parsePaginationParams, paginatedResponse } = require("../utils/pagination");
 
 const topUp = async (req, res) => {
   try {
@@ -63,32 +61,23 @@ const getClientCredit = async (req, res) => {
 
 const getTransactionHistory = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const skip = (page - 1) * limit;
+    const { page, limit, skip, where, orderBy } = parsePaginationParams(req.query, {
+      searchableFields: ["description"],
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "amount", "type"],
+    });
 
-    const where = {};
     if (req.params.clientId) {
       where.clientId = parseInt(req.params.clientId, 10);
     }
 
     const [data, total] = await Promise.all([
-      prisma.creditTransaction.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: "desc" },
-      }),
+      prisma.creditTransaction.findMany({ where, skip, take: limit, orderBy }),
       prisma.creditTransaction.count({ where }),
     ]);
 
-    return res.json({
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return res.json(paginatedResponse(data, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -96,11 +85,14 @@ const getTransactionHistory = async (req, res) => {
 
 const getSearchLogsByClient = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const skip = (page - 1) * limit;
+    const { page, limit, skip, where, orderBy } = parsePaginationParams(req.query, {
+      searchableFields: ["searchTerm"],
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "searchType", "fee"],
+    });
 
-    const where = { clientId: parseInt(req.params.clientId, 10) };
+    where.clientId = parseInt(req.params.clientId, 10);
     if (req.query.from && req.query.to) {
       where.createdAt = {
         gte: new Date(req.query.from),
@@ -118,18 +110,12 @@ const getSearchLogsByClient = async (req, res) => {
         },
         skip,
         take: limit,
-        orderBy: { createdAt: "desc" },
+        orderBy,
       }),
       prisma.searchLog.count({ where }),
     ]);
 
-    return res.json({
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return res.json(paginatedResponse(data, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }

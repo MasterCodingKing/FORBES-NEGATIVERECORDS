@@ -1,50 +1,35 @@
 const { prisma } = require("../models");
 const { logAudit } = require("../middleware/audit.middleware");
-
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 100;
+const { parsePaginationParams, paginatedResponse } = require("../utils/pagination");
 
 const list = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const skip = (page - 1) * limit;
-    const search = req.query.search || "";
-    const clientId = req.query.clientId || "";
+    const { page, limit, skip, where, orderBy } = parsePaginationParams(req.query, {
+      searchableFields: ["name", "clientCode"],
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "name", "clientCode", "status"],
+    });
 
-    const where = { isDeleted: 0 };
-    if (clientId) {
-      where.clientId = parseInt(clientId, 10);
-    }
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { clientCode: { contains: search, mode: "insensitive" } },
-      ];
+    where.isDeleted = 0;
+    if (req.query.clientId) {
+      where.clientId = parseInt(req.query.clientId, 10);
     }
 
     const [data, total] = await Promise.all([
       prisma.subDomain.findMany({
         where,
         include: {
-          client: {
-            select: { id: true, clientCode: true, name: true },
-          },
+          client: { select: { id: true, clientCode: true, name: true } },
         },
         skip,
         take: limit,
-        orderBy: { createdAt: "desc" },
+        orderBy,
       }),
       prisma.subDomain.count({ where }),
     ]);
 
-    return res.json({
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return res.json(paginatedResponse(data, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -52,7 +37,7 @@ const list = async (req, res) => {
 
 const create = async (req, res) => {
   try {
-    const { name, clientId, status } = req.body;
+    const { name, clientId, clientCode, status } = req.body;
 
     if (!name || !clientId) {
       return res.status(400).json({ message: "Missing required fields" });
@@ -69,7 +54,7 @@ const create = async (req, res) => {
       data: {
         name,
         clientId,
-        clientCode: client.clientCode,
+        clientCode: clientCode || client.clientCode,
         status: status || "Active",
       },
     });
@@ -91,17 +76,21 @@ const update = async (req, res) => {
       return res.status(404).json({ message: "Not found" });
     }
 
-    const { name, clientId, status } = req.body;
+    const { name, clientId, clientCode, status } = req.body;
     const updateData = {};
     if (name !== undefined) updateData.name = name;
     if (status !== undefined) updateData.status = status;
+    if (clientCode !== undefined) updateData.clientCode = clientCode;
     if (clientId !== undefined) {
       const client = await prisma.client.findUnique({
         where: { id: clientId },
       });
       if (!client) return res.status(404).json({ message: "Client not found" });
       updateData.clientId = clientId;
-      updateData.clientCode = client.clientCode;
+      // Use provided clientCode, otherwise use client's default
+      if (!updateData.clientCode) {
+        updateData.clientCode = client.clientCode;
+      }
     }
 
     const updated = await prisma.subDomain.update({
@@ -146,34 +135,29 @@ const softDelete = async (req, res) => {
 
 const listTrash = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const skip = (page - 1) * limit;
+    const { page, limit, skip, where, orderBy } = parsePaginationParams(req.query, {
+      searchableFields: ["name", "clientCode"],
+      defaultSort: "deletedAt",
+      defaultOrder: "desc",
+      sortableFields: ["deletedAt", "name", "clientCode"],
+    });
 
-    const where = { isDeleted: 1 };
+    where.isDeleted = 1;
 
     const [data, total] = await Promise.all([
       prisma.subDomain.findMany({
         where,
         include: {
-          client: {
-            select: { id: true, clientCode: true, name: true },
-          },
+          client: { select: { id: true, clientCode: true, name: true } },
         },
         skip,
         take: limit,
-        orderBy: { deletedAt: "desc" },
+        orderBy,
       }),
       prisma.subDomain.count({ where }),
     ]);
 
-    return res.json({
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return res.json(paginatedResponse(data, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }

@@ -119,6 +119,11 @@ const login = async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    if (!user.role) {
+      console.error(`User ${user.id} has no role assigned`);
+      return res.status(500).json({ message: "User role not configured" });
+    }
+
     if (!user.isApproved) {
       return res.status(403).json({ message: "Account not approved" });
     }
@@ -132,10 +137,13 @@ const login = async (req, res) => {
       .filter(Boolean)
       .join(" ") || user.email;
 
+    // Ensure role is a trimmed, non-empty string
+    const roleName = (user.role?.name || ROLES.USER).trim();
+
     const token = jwt.sign(
       {
         id: user.id,
-        role: user.role?.name || ROLES.USER,
+        role: roleName,
         firstName: user.firstName || null,
         lastName: user.lastName || null,
         email: user.email,

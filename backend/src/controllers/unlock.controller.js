@@ -1,8 +1,6 @@
 const { prisma } = require("../models");
 const { logAudit } = require("../middleware/audit.middleware");
-
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 100;
+const { parsePaginationParams, paginatedResponse } = require("../utils/pagination");
 
 const createRequest = async (req, res) => {
   try {
@@ -79,6 +77,30 @@ const createRequest = async (req, res) => {
       });
     }
 
+    // Notify all admins about the new unlock request
+    const adminRoles = await prisma.role.findMany({
+      where: { name: { in: ["Admin", "Super Admin"] } },
+    });
+    const adminRoleIds = adminRoles.map((r) => r.id);
+    const admins = await prisma.user.findMany({
+      where: { roleId: { in: adminRoleIds }, isApproved: 1 },
+      select: { id: true },
+    });
+    if (admins.length > 0) {
+      await prisma.notification.createMany({
+        data: admins.map((admin) => ({
+          userId: admin.id,
+          type: "UNLOCK_REQUEST_NEW",
+          title: "New Unlock Request",
+          message: `${requesterAffiliate} — ${requesterName} submitted an unlock request for record #${recordId}.${
+            reason ? ` Reason: "${reason}"` : ""
+          }`,
+          relatedId: request.id,
+        })),
+        skipDuplicates: true,
+      });
+    }
+
     return res.status(201).json(request);
   } catch (err) {
     return res.status(500).json({ message: err.message });
@@ -87,9 +109,11 @@ const createRequest = async (req, res) => {
 
 const listMyRequests = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const skip = (page - 1) * limit;
+    const { page, limit, skip, orderBy } = parsePaginationParams(req.query, {
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "status"],
+    });
 
     const where = { requestedBy: req.user.id };
 
@@ -99,18 +123,12 @@ const listMyRequests = async (req, res) => {
         include: { negativeRecord: true },
         skip,
         take: limit,
-        orderBy: { createdAt: "desc" },
+        orderBy,
       }),
       prisma.unlockRequest.count({ where }),
     ]);
 
-    return res.json({
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return res.json(paginatedResponse(data, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -118,9 +136,12 @@ const listMyRequests = async (req, res) => {
 
 const listAllRequests = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const skip = (page - 1) * limit;
+    const { page, limit, skip, orderBy } = parsePaginationParams(req.query, {
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "status"],
+    });
+
     const where = {};
     if (req.query.status) {
       where.status = req.query.status;
@@ -155,18 +176,12 @@ const listAllRequests = async (req, res) => {
         },
         skip,
         take: limit,
-        orderBy: { createdAt: "desc" },
+        orderBy,
       }),
       prisma.unlockRequest.count({ where }),
     ]);
 
-    return res.json({
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return res.json(paginatedResponse(data, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -317,9 +332,11 @@ const reviewRequest = async (req, res) => {
 // List unlock requests for records the current user owns (locked by them)
 const listOwnedRequests = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const skip = (page - 1) * limit;
+    const { page, limit, skip, orderBy } = parsePaginationParams(req.query, {
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "status"],
+    });
 
     // Find all records locked by the current user
     const myLocks = await prisma.recordLock.findMany({
@@ -354,21 +371,66 @@ const listOwnedRequests = async (req, res) => {
         },
         skip,
         take: limit,
-        orderBy: { createdAt: "desc" },
+        orderBy,
       }),
       prisma.unlockRequest.count({ where }),
     ]);
 
-    return res.json({
-      data,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    });
+    return res.json(paginatedResponse(data, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
 };
 
-module.exports = { createRequest, listMyRequests, listAllRequests, reviewRequest, listOwnedRequests };
+const getRequest = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const request = await prisma.unlockRequest.findUnique({
+      where: { id },
+      include: {
+        negativeRecord: {
+          include: {
+            recordLock: {
+              include: {
+                user: { select: { id: true, email: true, firstName: true, lastName: true } },
+              },
+            },
+          },
+        },
+        requester: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            telephone: true,
+            mobileNumber: true,
+            position: true,
+            client: { select: { id: true, name: true } },
+            branch: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+
+    if (!request) {
+      return res.status(404).json({ message: "Request not found" });
+    }
+
+    // Allow: admin roles OR the requester OR the lock owner
+    const userRole = req.user.role;
+    const isAdmin = userRole === "Super Admin" || userRole === "Admin";
+    const isRequester = request.requestedBy === req.user.id;
+    const isLockOwner = request.negativeRecord?.recordLock?.lockedBy === req.user.id;
+
+    if (!isAdmin && !isRequester && !isLockOwner) {
+      return res.status(403).json({ message: "Not authorized" });
+    }
+
+    return res.json(request);
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+module.exports = { createRequest, listMyRequests, listAllRequests, reviewRequest, listOwnedRequests, getRequest };

@@ -86,7 +86,7 @@ export default function ManageNews() {
         </form>
       )}
 
-      <DataTable columns={columns} fetchUrl="/news" api={api} refreshKey={refreshKey} />
+      <DataTable columns={columns} fetchUrl="/news" api={api} refreshKey={refreshKey} exportable exportUrl="/export/news" />
     </div>
   );
 }

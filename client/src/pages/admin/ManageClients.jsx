@@ -86,6 +86,7 @@ export default function ManageClients() {
     {
       key: "creditBalance",
       label: "Credit Balance",
+      sortable: false,
       render: (r) => Number(r.creditBalance).toFixed(2)
     },
     { key: "email", label: "Email" },
@@ -227,6 +228,8 @@ export default function ManageClients() {
         pageSize={10}
         refreshKey={refreshKey}
         emptyMessage="No clients found"
+        exportable
+        exportUrl="/export/clients"
       />
     </div>
   );

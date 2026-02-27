@@ -7,6 +7,9 @@ const router = express.Router();
 
 // Admin: OCR upload and manual record management
 router.post("/ocr-upload", auth, requireAdmin, controller.upload.single("file"), controller.uploadAndProcess);
+router.post("/upload-parse", auth, requireAdmin, controller.upload.single("file"), controller.uploadAndParse);
+router.post("/bulk-insert", auth, requireAdmin, controller.bulkInsert);
+router.get("/ocr-batch/:id", auth, requireAdmin, controller.getOcrBatchStatus);
 router.post("/", auth, requireAdmin, controller.createRecord);
 router.get("/", auth, requireAdmin, controller.listRecords);
 router.get("/details/:id", auth, requireAdmin, controller.getRecordDetails);

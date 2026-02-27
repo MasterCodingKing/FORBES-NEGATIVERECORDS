@@ -1,5 +1,6 @@
 import { useState } from "react";
 import api from "../../api/axios";
+import DataTable from "../../components/DataTable";
 
 export default function NegativeRecordSearch() {
   const [tab, setTab] = useState("Individual");
@@ -173,162 +174,22 @@ export default function NegativeRecordSearch() {
     setPrintError("");
     setPrintLoading(true);
     try {
-      const res = await api.post(`/records/${record.id}/print`);
-      const { record: r, printMeta } = res.data;
+      const res = await api.post(`/records/${record.id}/print`, null, {
+        responseType: "blob",
+      });
 
-      const name =
-        r.type === "Individual"
-          ? [r.firstName, r.middleName, r.lastName].filter(Boolean).join(" ")
-          : r.companyName;
-
-      const fmtDate = (d) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
-      const fmtDateTime = (d) => d ? new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true }) : "—";
-
-      const caseRows = (r.caseNo || r.caseType)
-        ? `<tr>
-             <td>${r.caseNo || "—"}</td>
-             <td>${r.caseType || "—"}</td>
-             <td>${r.plaintiff || "—"}</td>
-             <td>${fmtDate(r.dateFiled)}</td>
-             <td>${r.city || "—"}</td>
-             <td>${r.courtType || "—"}</td>
-             <td>${r.branch || "—"}</td>
-           </tr>`
-        : `<tr><td colspan="7" class="empty">Court/Case Not Found</td></tr>`;
-
-      const makeSection = (label, value) => {
-        // Handle null, empty string, or undefined
-        if (!value || (typeof value === 'string' && value.trim() === '')) {
-          return `
-            <div class="section-label">${label}: <span class="count">0</span></div>
-            <div class="section-status no-records">No Records Found</div>
-          `;
-        }
-        
-        // Parse comma-separated values
-        const items = typeof value === 'string' 
-          ? value.split(',').map(v => v.trim()).filter(v => v)
-          : [value];
-        const count = items.length;
-        
-        return `
-          <div class="section-label">${label}: <span class="count">${count}</span></div>
-          <div class="section-status">${items.join(', ')}</div>
-        `;
-      };
-
-      const printWindow = window.open("", "_blank");
-      printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>NEGATIVE RECORDS DETAIL REPORT — ${name}</title>
-          <style>
-            * { box-sizing: border-box; margin: 0; padding: 0; }
-            body { font-family: Arial, sans-serif; font-size: 12px; color: #222; padding: 24px 32px; }
-            .report-title { text-align: center; font-size: 18px; font-weight: bold; color: #0d2d5e; margin-bottom: 20px; letter-spacing: 1px; }
-            .border-box { border: 2px solid #0d2d5e; margin-bottom: 16px; }
-            table { width: 100%; border-collapse: collapse; }
-            table th { background: #0d2d5e; color: #fff; padding: 6px 8px; text-align: left; font-size: 11px; font-weight: 600; }
-            table td { padding: 6px 8px; border-bottom: 1px solid #e0e0e0; font-size: 11px; }
-            table td.empty { text-align: center; color: #999; font-style: italic; padding: 10px; }
-            .section-label { font-weight: bold; margin-top: 16px; font-size: 12px; }
-            .section-label .count { color: #E53935; font-weight: bold; }
-            .section-status { margin-top: 2px; margin-bottom: 4px; font-size: 11px; }
-            .no-records { color: #E53935; font-weight: bold; }
-            .disclaimer { margin-top: 24px; border-top: 1px solid #ccc; padding-top: 12px; }
-            .disclaimer h4 { font-size: 12px; margin-bottom: 6px; }
-            .disclaimer p { font-size: 10px; color: #444; line-height: 1.5; text-align: justify; }
-            @media print { .no-print { display: none !important; } body { padding: 12px 20px; } }
-          </style>
-        </head>
-        <body>
-          <div class="report-title">NEGATIVE RECORDS DETAIL REPORT</div>
-
-          <!-- Inquiry Info -->
-          <div class="border-box">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Inquiry Date</th>
-                  <th>Inquiry By</th>
-                  <th>Client</th>
-                  <th>Branch</th>
-                  <th>Reference No</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>${name}</td>
-                  <td>${fmtDateTime(printMeta?.inquiryDate)}</td>
-                  <td>${printMeta?.inquiryBy || "—"}</td>
-                  <td>${printMeta?.client || "—"}</td>
-                  <td>${printMeta?.branch || "All"}</td>
-                  <td>${printMeta?.referenceNo || "—"}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Case Info -->
-          <div class="border-box">
-            <table>
-              <thead>
-                <tr>
-                  <th>Case No.</th>
-                  <th>Case Type</th>
-                  <th>Plaintiff</th>
-                  <th>Date Filed</th>
-                  <th>City</th>
-                  <th>Court</th>
-                  <th>Branch</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${caseRows}
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Category Sections -->
-          ${makeSection("Court Case", r.caseNo ? r.caseType : null)}
-          ${makeSection("Bounce Check", r.bounce)}
-          ${makeSection("Watch List", r.watch)}
-          ${makeSection("Telecoms", r.telecom)}
-          ${makeSection("Declined", r.decline)}
-          ${makeSection("Delinquent", r.delinquent)}
-
-          <!-- Disclaimer -->
-          <div class="disclaimer">
-            <h4>Disclaimer</h4>
-            <p>
-              This report, to be treated in strictest confidence, upon request and in accordance with
-              the subscription agreement entered into by and between Forbes Financial Consultancy Corporation
-              (FFCC) and the user, the terms of which agreement are hereby incorporated by reference, for exclusive
-              use as one factor to be considered in connection with credit, insurance, marketing, and other business
-              decisions, and for no other purpose. It may contain information from sources which FFCC does not
-              control and which information, unless otherwise indicated, may not have been verified. It shall not be
-              used as evidence in any legal proceeding nor shall it be shown to subject or others, and neither shall
-              its source be disclosed. FFCC has acted with due diligence and in utmost good faith and does not
-              guarantee the accuracy, completeness, and timeliness of this report or does it assume any part of the
-              user's risk in its use or non-use. FFCC shall not and cannot be held liable for any loss, injury or damage
-              caused or may hereafter be caused, directly or indirectly, by the use of the report or arising from the
-              acts on the part of FFCC, its officers, agents, and personnel relative to the procurement, collection,
-              and/or communication of any information relative thereto. Any point of clarification may be promptly
-              raised solely and exclusively with FFCC.
-            </p>
-          </div>
-
-          <div class="no-print" style="margin-top:24px;text-align:center;">
-            <button onclick="window.print()" style="padding:8px 24px;background:#0d2d5e;color:#fff;border:none;cursor:pointer;border-radius:4px;font-size:13px;">Print</button>
-          </div>
-        </body>
-        </html>
-      `);
-      printWindow.document.close();
-      printWindow.focus();
-      printWindow.print();
+      // Server returns a PDF blob — open in new tab for printing
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const printWindow = window.open(url, "_blank");
+      if (printWindow) {
+        printWindow.addEventListener("load", () => {
+          printWindow.focus();
+          printWindow.print();
+        });
+      }
+      // Clean up object URL after a delay
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
     } catch (err) {
       setPrintError(err.response?.data?.message || "Failed to print record");
     } finally {
@@ -457,40 +318,29 @@ export default function NegativeRecordSearch() {
 
             {/* Access History */}
             <h4 className="text-base font-bold text-primary-header mb-3">Access History</h4>
-            <div className="bg-card-bg border border-card-border rounded-lg overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-nav-bg text-primary-on-dark">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Affiliate</th>
-                    <th className="px-4 py-3 text-left">Branch</th>
-                    <th className="px-4 py-3 text-left">Username</th>
-                    <th className="px-4 py-3 text-left">Full Name</th>
-                    <th className="px-4 py-3 text-left">Search Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {accessHistory && accessHistory.length > 0 ? (
-                    accessHistory.map((h) => (
-                      <tr key={h.id} className="border-t border-card-border">
-                        <td className="px-4 py-3">{h.affiliate}</td>
-                        <td className="px-4 py-3 text-btn-primary">{h.branch}</td>
-                        <td className="px-4 py-3">{h.username}</td>
-                        <td className="px-4 py-3">{h.fullName}</td>
-                        <td className="px-4 py-3">
-                          {h.searchDate ? new Date(h.searchDate).toLocaleDateString() : "—"}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={5} className="px-4 py-4 text-center text-sidebar-text">
-                        No access history found.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              columns={[
+                { key: "affiliate", label: "Affiliate" },
+                { key: "branch", label: "Branch" },
+                { key: "username", label: "Username" },
+                { key: "fullName", label: "Full Name" },
+                {
+                  key: "searchDate",
+                  label: "Search Date",
+                  render: (h) => (h.searchDate ? new Date(h.searchDate).toLocaleDateString() : "—"),
+                },
+              ]}
+              fetchFn={() =>
+                Promise.resolve({
+                  data: accessHistory || [],
+                  total: accessHistory?.length || 0,
+                  page: 1,
+                  totalPages: 1,
+                })
+              }
+              searchable={false}
+              pageSize={100}
+            />
           </>
         )}
 

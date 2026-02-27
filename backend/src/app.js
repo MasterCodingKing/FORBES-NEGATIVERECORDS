@@ -17,12 +17,18 @@ const recordRoutes = require("./routes/record.routes");
 const searchLogRoutes = require("./routes/search_log.routes");
 const directoryRoutes = require("./routes/directory.routes");
 const notificationRoutes = require("./routes/notification.routes");
+const dashboardRoutes = require("./routes/dashboard.routes");
+const exportRoutes = require("./routes/export.routes");
 
 const app = express();
 
+const corsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim())
+  : "*";
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: corsOrigins,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -58,5 +64,7 @@ app.use("/api/records", recordRoutes);
 app.use("/api/search-logs", searchLogRoutes);
 app.use("/api/directory", directoryRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/export", exportRoutes);
 
 module.exports = app;

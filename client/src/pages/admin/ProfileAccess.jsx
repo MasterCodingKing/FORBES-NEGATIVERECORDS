@@ -134,9 +134,9 @@ export default function ProfileAccess() {
     { key: "lastName", label: "Last Name" },
     { key: "email", label: "Email" },
     { key: "username", label: "Username" },
-    { key: "roleName", label: "Role", render: (r) => r.Role?.name || "—" },
-    { key: "clientName", label: "Affiliate", render: (r) => r.Client?.name || "—" },
-    { key: "branchName", label: "Branch", render: (r) => r.Branch?.name || "—" },
+    { key: "roleName", label: "Role", sortable: false, render: (r) => r.Role?.name || "—" },
+    { key: "clientName", label: "Affiliate", sortable: false, render: (r) => r.Client?.name || "—" },
+    { key: "branchName", label: "Branch", sortable: false, render: (r) => r.Branch?.name || "—" },
     {
       key: "status",
       label: "Status",
@@ -374,6 +374,8 @@ export default function ProfileAccess() {
           pageSize={10}
           refreshKey={refreshKey}
           emptyMessage="No users found"
+          exportable
+          exportUrl="/export/users"
         />
       )}
 
