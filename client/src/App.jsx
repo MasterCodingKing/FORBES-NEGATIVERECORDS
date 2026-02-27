@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import ProtectedRoute from "./routes/ProtectedRoute";
 
 import AdminLayout from "./components/layouts/AdminLayout";
@@ -10,6 +11,7 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 
 // Admin pages
+import AdminDashboard from "./pages/admin/AdminDashboard";
 import ManageClients from "./pages/admin/ManageClients";
 import AffiliateBranches from "./pages/admin/AffiliateBranches";
 import ProfileAccess from "./pages/admin/ProfileAccess";
@@ -31,16 +33,17 @@ function RootRedirect() {
   if (loading) return null;
   if (!user) return <Navigate to="/landing" replace />;
   if (user.role === "Super Admin" || user.role === "Admin") {
-    return <Navigate to="/admin/clients" replace />;
+    return <Navigate to="/admin/dashboard" replace />;
   }
   return <Navigate to="/affiliate/search" replace />;
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
-        <Routes>
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
           <Route path="/" element={<RootRedirect />} />
           <Route path="/landing" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
@@ -55,7 +58,8 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<Navigate to="clients" replace />} />
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<AdminDashboard />} />
             <Route path="clients" element={<ManageClients />} />
             <Route path="branches" element={<AffiliateBranches />} />
             <Route path="access" element={<ProfileAccess />} />
@@ -69,7 +73,7 @@ export default function App() {
           <Route
             path="/affiliate"
             element={
-              <ProtectedRoute roles={["User"]}>
+              <ProtectedRoute roles={["Affiliate"]}>
                 <AffiliateLayout />
               </ProtectedRoute>
             }
@@ -84,5 +88,6 @@ export default function App() {
         </Routes>
       </BrowserRouter>
     </AuthProvider>
+    </ThemeProvider>
   );
 }

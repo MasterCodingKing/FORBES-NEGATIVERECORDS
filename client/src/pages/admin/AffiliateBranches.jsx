@@ -6,8 +6,7 @@ export default function AffiliateBranches() {
   const [clients, setClients] = useState([]);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ clientId: "", branchName: "", status: "Active" });
-  const [selectedClientCode, setSelectedClientCode] = useState("");
+  const [form, setForm] = useState({ clientCode: "", clientId: "", branchName: "", status: "Active" });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -17,10 +16,7 @@ export default function AffiliateBranches() {
   }, []);
 
   const handleClientChange = (e) => {
-    const cId = e.target.value;
-    const client = clients.find((c) => String(c.id) === String(cId));
-    setForm({ ...form, clientId: cId });
-    setSelectedClientCode(client?.clientCode || "");
+    setForm({ ...form, clientId: e.target.value });
   };
 
   const handleSubmit = async (e) => {
@@ -28,7 +24,7 @@ export default function AffiliateBranches() {
     setError("");
     setSuccess("");
     try {
-      const payload = { name: form.branchName, clientId: Number(form.clientId), status: form.status };
+      const payload = { name: form.branchName, clientId: Number(form.clientId), clientCode: form.clientCode, status: form.status };
       if (editingId) {
         await api.put(`/sub-domains/${editingId}`, payload);
         setSuccess("Branch updated");
@@ -36,8 +32,7 @@ export default function AffiliateBranches() {
         await api.post("/sub-domains", payload);
         setSuccess("Branch added");
       }
-      setForm({ clientId: "", branchName: "", status: "Active" });
-      setSelectedClientCode("");
+      setForm({ clientCode: "", clientId: "", branchName: "", status: "Active" });
       setEditingId(null);
       setShowForm(false);
       setRefreshKey((k) => k + 1);
@@ -47,13 +42,12 @@ export default function AffiliateBranches() {
   };
 
   const handleEdit = (row) => {
-    const client = clients.find((c) => c.id === row.clientId);
     setForm({
+      clientCode: row.clientCode || "",
       clientId: String(row.clientId),
       branchName: row.name,
       status: row.status || "Active"
     });
-    setSelectedClientCode(client?.clientCode || row.clientCode || "");
     setEditingId(row.id);
     setShowForm(true);
     setError("");
@@ -75,6 +69,7 @@ export default function AffiliateBranches() {
     {
       key: "clientName",
       label: "Client",
+      sortable: false,
       render: (r) => r.Client?.name || "—"
     },
     { key: "name", label: "Branch Name" },
@@ -108,8 +103,8 @@ export default function AffiliateBranches() {
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-bold text-primary-header">Affiliate Branches</h2>
         <button
-          onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ clientId: "", branchName: "", status: "Active" }); setSelectedClientCode(""); setError(""); setSuccess(""); }}
-          className="bg-primary-header text-primary-on-dark px-4 py-2 rounded text-sm font-medium hover:opacity-90"
+          onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ clientCode: "", clientId: "", branchName: "", status: "Active" }); setError(""); setSuccess(""); }}
+          className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90"
         >
           {showForm ? "Cancel" : "+ Add Branch"}
         </button>
@@ -124,7 +119,7 @@ export default function AffiliateBranches() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-bold text-primary-header mb-1">Client Code <span className="text-error">*</span></label>
-              <input value={selectedClientCode} readOnly className={`${inp} bg-sidebar-bg`} placeholder="Auto-filled from Client" />
+              <input value={form.clientCode} onChange={(e) => setForm({ ...form, clientCode: e.target.value })} className={inp} placeholder="Enter client code" required />
             </div>
             <div>
               <label className="block text-sm font-bold text-primary-header mb-1">Client <span className="text-error">*</span></label>
@@ -148,10 +143,10 @@ export default function AffiliateBranches() {
             </div>
           </div>
           <div className="flex gap-2 pt-2">
-            <button type="submit" className="bg-primary-header text-primary-on-dark px-6 py-2 rounded text-sm font-medium hover:opacity-90">
+            <button type="submit" className="bg-btn-primary text-btn-primary-text px-6 py-2 rounded text-sm font-medium hover:opacity-90">
               {editingId ? "Update Branch" : "Save Branch"}
             </button>
-            <button type="button" onClick={() => { setShowForm(false); setEditingId(null); }}
+            <button type="button" onClick={() => { setShowForm(false); setEditingId(null); setForm({ clientCode: "", clientId: "", branchName: "", status: "Active" }); }}
               className="bg-card-bg text-sidebar-text border border-card-border px-6 py-2 rounded text-sm hover:bg-sidebar-bg">
               Cancel
             </button>
@@ -166,6 +161,8 @@ export default function AffiliateBranches() {
         pageSize={10}
         refreshKey={refreshKey}
         emptyMessage="No branches found"
+        exportable
+        exportUrl="/export/sub-domains"
       />
     </div>
   );

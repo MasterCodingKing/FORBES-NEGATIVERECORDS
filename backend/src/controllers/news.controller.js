@@ -1,33 +1,22 @@
-const { News } = require("../models");
+const { prisma } = require("../models");
 const { logAudit } = require("../middleware/audit.middleware");
-
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 100;
+const { parsePaginationParams, paginatedResponse } = require("../utils/pagination");
 
 const list = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const offset = (page - 1) * limit;
-    const search = req.query.search || "";
-
-    const where = {};
-    if (search) {
-      const { Op } = require("sequelize");
-      where[Op.or] = [
-        { title: { [Op.like]: `%${search}%` } },
-        { content: { [Op.like]: `%${search}%` } }
-      ];
-    }
-
-    const { rows, count } = await News.findAndCountAll({
-      where,
-      limit,
-      offset,
-      order: [["createdAt", "DESC"]]
+    const { page, limit, skip, where, orderBy } = parsePaginationParams(req.query, {
+      searchableFields: ["title", "content"],
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "title"],
     });
 
-    return res.json({ data: rows, total: count, page, limit, totalPages: Math.ceil(count / limit) });
+    const [data, total] = await Promise.all([
+      prisma.news.findMany({ where, skip, take: limit, orderBy }),
+      prisma.news.count({ where }),
+    ]);
+
+    return res.json(paginatedResponse(data, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -35,7 +24,9 @@ const list = async (req, res) => {
 
 const getById = async (req, res) => {
   try {
-    const news = await News.findByPk(req.params.id);
+    const news = await prisma.news.findUnique({
+      where: { id: parseInt(req.params.id, 10) },
+    });
     if (!news) {
       return res.status(404).json({ message: "News not found" });
     }
@@ -52,11 +43,13 @@ const create = async (req, res) => {
       return res.status(400).json({ message: "Title and content are required" });
     }
 
-    const news = await News.create({
-      title,
-      content,
-      imageUrl: imageUrl || null,
-      createdBy: req.user.id
+    const news = await prisma.news.create({
+      data: {
+        title,
+        content,
+        imageUrl: imageUrl || null,
+        createdBy: req.user.id,
+      },
     });
 
     await logAudit(req, "NEWS_CREATE", "news", news.id);
@@ -68,19 +61,26 @@ const create = async (req, res) => {
 
 const update = async (req, res) => {
   try {
-    const news = await News.findByPk(req.params.id);
+    const news = await prisma.news.findUnique({
+      where: { id: parseInt(req.params.id, 10) },
+    });
     if (!news) {
       return res.status(404).json({ message: "News not found" });
     }
 
+    const updateData = {};
     const { title, content, imageUrl } = req.body;
-    if (title) news.title = title;
-    if (content) news.content = content;
-    if (imageUrl !== undefined) news.imageUrl = imageUrl;
-    await news.save();
+    if (title) updateData.title = title;
+    if (content) updateData.content = content;
+    if (imageUrl !== undefined) updateData.imageUrl = imageUrl;
+
+    const updated = await prisma.news.update({
+      where: { id: news.id },
+      data: updateData,
+    });
 
     await logAudit(req, "NEWS_UPDATE", "news", news.id);
-    return res.json(news);
+    return res.json(updated);
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -88,13 +88,14 @@ const update = async (req, res) => {
 
 const remove = async (req, res) => {
   try {
-    const news = await News.findByPk(req.params.id);
+    const id = parseInt(req.params.id, 10);
+    const news = await prisma.news.findUnique({ where: { id } });
     if (!news) {
       return res.status(404).json({ message: "News not found" });
     }
 
-    await news.destroy();
-    await logAudit(req, "NEWS_DELETE", "news", parseInt(req.params.id, 10));
+    await prisma.news.delete({ where: { id } });
+    await logAudit(req, "NEWS_DELETE", "news", id);
     return res.json({ message: "News deleted" });
   } catch (err) {
     return res.status(500).json({ message: err.message });

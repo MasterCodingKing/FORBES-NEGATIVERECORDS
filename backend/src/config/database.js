@@ -1,15 +1,9 @@
-const { Sequelize } = require("sequelize");
+// Database connection is now managed by Prisma.
+// Configure DATABASE_URL in your .env file:
+// DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?schema=public"
+//
+// See: backend/src/config/prisma.js
 
-const sequelize = new Sequelize(
-  process.env.DB_NAME,
-  process.env.DB_USER,
-  process.env.DB_PASSWORD,
-  {
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT || 3306,
-    dialect: "mysql",
-    logging: false
-  }
-);
+const { prisma } = require("./prisma");
 
-module.exports = { sequelize };
+module.exports = { prisma };

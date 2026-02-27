@@ -3,8 +3,7 @@ const cors = require("cors");
 const path = require("path");
 require("dotenv").config();
 
-const { sequelize } = require("./config/database");
-const { initModels } = require("./models");
+const { prisma } = require("./config/prisma");
 const { seedRolesAndAdmin } = require("./seeders/initial.seeder");
 
 const authRoutes = require("./routes/auth.routes");
@@ -17,12 +16,19 @@ const creditRoutes = require("./routes/credit.routes");
 const recordRoutes = require("./routes/record.routes");
 const searchLogRoutes = require("./routes/search_log.routes");
 const directoryRoutes = require("./routes/directory.routes");
+const notificationRoutes = require("./routes/notification.routes");
+const dashboardRoutes = require("./routes/dashboard.routes");
+const exportRoutes = require("./routes/export.routes");
 
 const app = express();
 
+const corsOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(",").map((origin) => origin.trim())
+  : "*";
+
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: corsOrigins,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -32,16 +38,15 @@ app.options("*", cors());
 app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
-initModels();
-
-sequelize
-  .sync({ alter: true })
+// Connect to PostgreSQL via Prisma and seed initial data
+prisma
+  .$connect()
   .then(async () => {
-    console.log("Database synced");
+    console.log("Database connected (Prisma + PostgreSQL)");
     await seedRolesAndAdmin();
   })
   .catch((err) => {
-    console.error("Database sync failed", err);
+    console.error("Database connection failed", err);
   });
 
 app.get("/health", (req, res) => {
@@ -58,5 +63,8 @@ app.use("/api/credits", creditRoutes);
 app.use("/api/records", recordRoutes);
 app.use("/api/search-logs", searchLogRoutes);
 app.use("/api/directory", directoryRoutes);
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/export", exportRoutes);
 
 module.exports = app;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "../api/axios";
+import ThemeToggle from "../components/ThemeToggle";
 
 export default function LandingPage() {
   const [news, setNews] = useState([]);
@@ -19,10 +20,11 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-page-bg">
       {/* Header */}
-      <header className="bg-primary-header text-primary-on-dark py-6 px-8">
+      <header className="bg-nav-bg text-primary-on-dark py-6 px-8 shadow-md">
         <div className="max-w-5xl mx-auto flex items-center justify-between">
           <h1 className="text-2xl font-bold tracking-wide">NEGRECT</h1>
-          <div className="flex gap-3">
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
             <a
               href="/login"
               className="bg-sidebar-active text-sidebar-active-text px-4 py-2 rounded text-sm font-medium hover:opacity-90"

@@ -1,31 +1,38 @@
-const { User, Role, Client, SubDomain } = require("../models");
+const { prisma } = require("../models");
 const { logAudit } = require("../middleware/audit.middleware");
 const bcrypt = require("bcryptjs");
-const { Op } = require("sequelize");
-
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 100;
+const { parsePaginationParams, paginatedResponse } = require("../utils/pagination");
 
 const listPending = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const offset = (page - 1) * limit;
-
-    const { rows, count } = await User.findAndCountAll({
-      where: { isApproved: 0 },
-      include: [
-        { model: Role, attributes: ["id", "name"] },
-        { model: Client, attributes: ["id", "clientCode", "name"] },
-        { model: SubDomain, as: "Branch", attributes: ["id", "name"] }
-      ],
-      attributes: { exclude: ["passwordHash"] },
-      limit,
-      offset,
-      order: [["createdAt", "DESC"]]
+    const { page, limit, skip, where, orderBy } = parsePaginationParams(req.query, {
+      searchableFields: ["firstName", "lastName", "email", "username"],
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "firstName", "lastName", "email"],
     });
 
-    return res.json({ data: rows, total: count, page, limit, totalPages: Math.ceil(count / limit) });
+    where.isApproved = 0;
+
+    const [data, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        include: {
+          role: { select: { id: true, name: true } },
+          client: { select: { id: true, clientCode: true, name: true } },
+          branch: { select: { id: true, name: true } },
+        },
+        skip,
+        take: limit,
+        orderBy,
+      }),
+      prisma.user.count({ where }),
+    ]);
+
+    // Remove passwordHash from response
+    const sanitized = data.map(({ passwordHash, ...rest }) => rest);
+
+    return res.json(paginatedResponse(sanitized, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -33,35 +40,31 @@ const listPending = async (req, res) => {
 
 const listAll = async (req, res) => {
   try {
-    const page = Math.max(parseInt(req.query.page || 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit || DEFAULT_LIMIT, 10), MAX_LIMIT);
-    const offset = (page - 1) * limit;
-    const search = req.query.search || "";
-
-    const where = {};
-    if (search) {
-      where[Op.or] = [
-        { firstName: { [Op.like]: `%${search}%` } },
-        { lastName: { [Op.like]: `%${search}%` } },
-        { email: { [Op.like]: `%${search}%` } },
-        { username: { [Op.like]: `%${search}%` } }
-      ];
-    }
-
-    const { rows, count } = await User.findAndCountAll({
-      where,
-      include: [
-        { model: Role, attributes: ["id", "name"] },
-        { model: Client, attributes: ["id", "clientCode", "name"] },
-        { model: SubDomain, as: "Branch", attributes: ["id", "name"] }
-      ],
-      attributes: { exclude: ["passwordHash"] },
-      limit,
-      offset,
-      order: [["createdAt", "DESC"]]
+    const { page, limit, skip, where, orderBy } = parsePaginationParams(req.query, {
+      searchableFields: ["firstName", "lastName", "email", "username"],
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "firstName", "lastName", "email", "username"],
     });
 
-    return res.json({ data: rows, total: count, page, limit, totalPages: Math.ceil(count / limit) });
+    const [data, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        include: {
+          role: { select: { id: true, name: true } },
+          client: { select: { id: true, clientCode: true, name: true } },
+          branch: { select: { id: true, name: true } },
+        },
+        skip,
+        take: limit,
+        orderBy,
+      }),
+      prisma.user.count({ where }),
+    ]);
+
+    const sanitized = data.map(({ passwordHash, ...rest }) => rest);
+
+    return res.json(paginatedResponse(sanitized, total, page, limit));
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -74,12 +77,17 @@ const create = async (req, res) => {
       firstName, middleName, lastName,
       telephone, mobileNumber, faxNumber,
       primaryEmail, alternateEmail1, alternateEmail2,
-      areaHeadManager, areaHeadManagerContact, position, department
+      areaHeadManager, areaHeadManagerContact, position, department,
     } = req.body;
 
     if (!email || !password || !roleId) {
       return res.status(400).json({ message: "Email, password, and role are required" });
     }
+
+    // Convert string IDs to integers
+    const roleIdInt = parseInt(roleId, 10);
+    const clientIdInt = clientId ? parseInt(clientId, 10) : null;
+    const branchIdInt = branchId ? parseInt(branchId, 10) : null;
     if (password.length < 8) {
       return res.status(400).json({ message: "Password must be at least 8 characters" });
     }
@@ -87,12 +95,12 @@ const create = async (req, res) => {
       return res.status(400).json({ message: "Username must be at least 2 characters" });
     }
 
-    const existingEmail = await User.findOne({ where: { email } });
+    const existingEmail = await prisma.user.findUnique({ where: { email } });
     if (existingEmail) {
       return res.status(409).json({ message: "Email already exists" });
     }
     if (username) {
-      const existingUsername = await User.findOne({ where: { username } });
+      const existingUsername = await prisma.user.findUnique({ where: { username } });
       if (existingUsername) {
         return res.status(409).json({ message: "Username already exists" });
       }
@@ -100,16 +108,29 @@ const create = async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    const user = await User.create({
-      username, email, passwordHash, roleId,
-      clientId: clientId || null,
-      branchId: branchId || null,
-      isApproved: 1,
-      firstName, middleName, lastName,
-      telephone, mobileNumber, faxNumber,
-      primaryEmail: primaryEmail || email,
-      alternateEmail1, alternateEmail2,
-      areaHeadManager, areaHeadManagerContact, position, department
+    const user = await prisma.user.create({
+      data: {
+        username: username || null,
+        email,
+        passwordHash,
+        roleId: roleIdInt,
+        clientId: clientIdInt,
+        branchId: branchIdInt,
+        isApproved: 1,
+        firstName: firstName || null,
+        middleName: middleName || null,
+        lastName: lastName || null,
+        telephone: telephone || null,
+        mobileNumber: mobileNumber || null,
+        faxNumber: faxNumber || null,
+        primaryEmail: primaryEmail || email,
+        alternateEmail1: alternateEmail1 || null,
+        alternateEmail2: alternateEmail2 || null,
+        areaHeadManager: areaHeadManager || null,
+        areaHeadManagerContact: areaHeadManagerContact || null,
+        position: position || null,
+        department: department || null,
+      },
     });
 
     await logAudit(req, "USER_CREATE", "users", user.id);
@@ -121,7 +142,9 @@ const create = async (req, res) => {
 
 const approve = async (req, res) => {
   try {
-    const user = await User.findByPk(req.params.id);
+    const user = await prisma.user.findUnique({
+      where: { id: parseInt(req.params.id, 10) },
+    });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -132,7 +155,11 @@ const approve = async (req, res) => {
     if (clientId) updates.clientId = clientId;
     if (branchId) updates.branchId = branchId;
 
-    await user.update(updates);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: updates,
+    });
+
     await logAudit(req, "USER_APPROVE", "users", user.id);
     return res.json({ message: "User approved" });
   } catch (err) {
@@ -142,7 +169,9 @@ const approve = async (req, res) => {
 
 const updateUser = async (req, res) => {
   try {
-    const user = await User.findByPk(req.params.id);
+    const user = await prisma.user.findUnique({
+      where: { id: parseInt(req.params.id, 10) },
+    });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -152,20 +181,25 @@ const updateUser = async (req, res) => {
       "firstName", "middleName", "lastName",
       "telephone", "mobileNumber", "faxNumber",
       "primaryEmail", "alternateEmail1", "alternateEmail2",
-      "areaHeadManager", "areaHeadManagerContact", "position", "department"
+      "areaHeadManager", "areaHeadManagerContact", "position", "department",
     ];
 
+    const updateData = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
-        user[field] = req.body[field];
+        updateData[field] = req.body[field];
       }
     }
 
     if (req.body.password) {
-      user.passwordHash = await bcrypt.hash(req.body.password, 10);
+      updateData.passwordHash = await bcrypt.hash(req.body.password, 10);
     }
 
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: updateData,
+    });
+
     await logAudit(req, "USER_UPDATE", "users", user.id);
     return res.json({ message: "User updated" });
   } catch (err) {
@@ -175,12 +209,14 @@ const updateUser = async (req, res) => {
 
 const deleteUser = async (req, res) => {
   try {
-    const user = await User.findByPk(req.params.id);
+    const id = parseInt(req.params.id, 10);
+    const user = await prisma.user.findUnique({ where: { id } });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    await user.destroy();
-    await logAudit(req, "USER_DELETE", "users", parseInt(req.params.id, 10));
+
+    await prisma.user.delete({ where: { id } });
+    await logAudit(req, "USER_DELETE", "users", id);
     return res.json({ message: "User deleted" });
   } catch (err) {
     return res.status(500).json({ message: err.message });
@@ -189,18 +225,25 @@ const deleteUser = async (req, res) => {
 
 const getProfile = async (req, res) => {
   try {
-    const user = await User.findByPk(req.user.id, {
-      include: [
-        { model: Role, attributes: ["id", "name"] },
-        { model: Client, attributes: ["id", "clientCode", "name"] },
-        { model: SubDomain, as: "Branch", attributes: ["id", "name"] }
-      ],
-      attributes: { exclude: ["passwordHash"] }
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      include: {
+        role: { select: { id: true, name: true } },
+        client: { select: { id: true, clientCode: true, name: true } },
+        branch: { select: { id: true, name: true } },
+      },
     });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
-    return res.json(user);
+
+    const { passwordHash, ...profile } = user;
+    // Add virtual fullName
+    profile.fullName = [user.firstName, user.middleName, user.lastName]
+      .filter(Boolean)
+      .join(" ") || user.email;
+
+    return res.json(profile);
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -208,7 +251,9 @@ const getProfile = async (req, res) => {
 
 const updateProfile = async (req, res) => {
   try {
-    const user = await User.findByPk(req.user.id);
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+    });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -216,19 +261,28 @@ const updateProfile = async (req, res) => {
     const allowedFields = [
       "firstName", "middleName", "lastName", "email",
       "telephone", "mobileNumber", "faxNumber",
-      "primaryEmail", "alternateEmail1", "alternateEmail2"
+      "primaryEmail", "alternateEmail1", "alternateEmail2",
     ];
 
+    const updateData = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
-        user[field] = req.body[field];
+        updateData[field] = req.body[field];
       }
     }
 
-    await user.save();
+    const updated = await prisma.user.update({
+      where: { id: user.id },
+      data: updateData,
+    });
+
     await logAudit(req, "PROFILE_UPDATE", "users", user.id);
 
-    return res.json({ id: user.id, email: user.email, fullName: user.fullName });
+    const fullName = [updated.firstName, updated.middleName, updated.lastName]
+      .filter(Boolean)
+      .join(" ") || updated.email;
+
+    return res.json({ id: updated.id, email: updated.email, fullName });
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -236,7 +290,9 @@ const updateProfile = async (req, res) => {
 
 const changePassword = async (req, res) => {
   try {
-    const user = await User.findByPk(req.user.id);
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+    });
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -251,8 +307,11 @@ const changePassword = async (req, res) => {
       return res.status(400).json({ message: "Current password is incorrect" });
     }
 
-    user.passwordHash = await bcrypt.hash(newPassword, 10);
-    await user.save();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await bcrypt.hash(newPassword, 10) },
+    });
+
     await logAudit(req, "PASSWORD_CHANGE", "users", user.id);
 
     return res.json({ message: "Password changed" });
@@ -263,7 +322,9 @@ const changePassword = async (req, res) => {
 
 const listRoles = async (req, res) => {
   try {
-    const roles = await Role.findAll({ order: [["id", "ASC"]] });
+    const roles = await prisma.role.findMany({
+      orderBy: { id: "asc" },
+    });
     return res.json(roles);
   } catch (err) {
     return res.status(500).json({ message: err.message });
@@ -280,5 +341,5 @@ module.exports = {
   getProfile,
   updateProfile,
   changePassword,
-  listRoles
+  listRoles,
 };

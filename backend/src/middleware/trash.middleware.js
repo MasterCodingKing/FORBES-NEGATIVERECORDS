@@ -1,4 +1,4 @@
-const { SubDomain } = require("../models");
+const { prisma } = require("../models");
 const { ROLES } = require("../utils/roles");
 
 const enforceActiveSubDomain = async (req, res, next) => {
@@ -7,8 +7,8 @@ const enforceActiveSubDomain = async (req, res, next) => {
     return next();
   }
 
-  const subDomain = await SubDomain.findOne({
-    where: { id, isDeleted: 0 }
+  const subDomain = await prisma.subDomain.findFirst({
+    where: { id: parseInt(id, 10), isDeleted: 0 },
   });
 
   if (!subDomain) {
@@ -30,5 +30,5 @@ const allowTrashAccess = (req, res, next) => {
 
 module.exports = {
   enforceActiveSubDomain,
-  allowTrashAccess
+  allowTrashAccess,
 };

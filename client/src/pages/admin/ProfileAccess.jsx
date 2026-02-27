@@ -134,9 +134,9 @@ export default function ProfileAccess() {
     { key: "lastName", label: "Last Name" },
     { key: "email", label: "Email" },
     { key: "username", label: "Username" },
-    { key: "roleName", label: "Role", render: (r) => r.Role?.name || "—" },
-    { key: "clientName", label: "Affiliate", render: (r) => r.Client?.name || "—" },
-    { key: "branchName", label: "Branch", render: (r) => r.Branch?.name || "—" },
+    { key: "roleName", label: "Role", sortable: false, render: (r) => r.Role?.name || "—" },
+    { key: "clientName", label: "Affiliate", sortable: false, render: (r) => r.Client?.name || "—" },
+    { key: "branchName", label: "Branch", sortable: false, render: (r) => r.Branch?.name || "—" },
     {
       key: "status",
       label: "Status",
@@ -192,7 +192,7 @@ export default function ProfileAccess() {
         <h2 className="text-xl font-bold text-primary-header">Profile & Accessing</h2>
         <button
           onClick={() => { setShowForm(!showForm); setEditingId(null); setForm({ ...emptyForm }); setError(""); setSuccess(""); }}
-          className="bg-primary-header text-primary-on-dark px-4 py-2 rounded text-sm font-medium hover:opacity-90"
+          className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90"
         >
           {showForm ? "Cancel" : "+ Add User"}
         </button>
@@ -339,7 +339,7 @@ export default function ProfileAccess() {
           </div>
 
           <div className="flex gap-2 pt-2">
-            <button type="submit" className="bg-primary-header text-primary-on-dark px-6 py-2 rounded text-sm font-medium hover:opacity-90">
+            <button type="submit" className="bg-btn-primary text-btn-primary-text px-6 py-2 rounded text-sm font-medium hover:opacity-90">
               {editingId ? "Update User" : "Save User"}
             </button>
             <button type="button" onClick={() => { setShowForm(false); setEditingId(null); setForm({ ...emptyForm }); }}
@@ -374,6 +374,8 @@ export default function ProfileAccess() {
           pageSize={10}
           refreshKey={refreshKey}
           emptyMessage="No users found"
+          exportable
+          exportUrl="/export/users"
         />
       )}
 
