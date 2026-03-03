@@ -45,6 +45,12 @@ export default function AdminRecords() {
   const [saving, setSaving] = useState(false);
   const uploadFileRef = useRef(null);
 
+  // Background upload state (large spreadsheet files)
+  const [bgBatchId, setBgBatchId] = useState(null);
+  const [bgBatchStatus, setBgBatchStatus] = useState(null);
+  const [bgBatchRecords, setBgBatchRecords] = useState(0);
+  const bgPollRef = useRef(null);
+
   const handleChange = (e) => {
     const { name, value, type: inputType, checked } = e.target;
     setForm({ ...form, [name]: inputType === "checkbox" ? checked : value });
@@ -74,18 +80,64 @@ export default function AdminRecords() {
     const formData = new FormData();
     formData.append("file", file);
     setUploading(true);
+    setBgBatchId(null);
+    setBgBatchStatus(null);
+    setBgBatchRecords(0);
+
     try {
-      const res = await api.post("/records/upload-parse", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      setUploadRows(res.data.rows || []);
-      setUploadFileName(res.data.fileName || file.name);
-      setSuccess(`Extracted ${res.data.rows?.length || 0} row(s) from ${file.name}`);
-      if (uploadFileRef.current) uploadFileRef.current.value = "";
+      if (isSpreadsheet && file.size > 5 * 1024 * 1024) {
+        // Large spreadsheet → background processing
+        const res = await api.post("/records/upload-spreadsheet", formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 120000,
+        });
+        setBgBatchId(res.data.batch?.id);
+        setBgBatchStatus("pending");
+        setSuccess(`File queued for background processing: ${file.name}`);
+        if (uploadFileRef.current) uploadFileRef.current.value = "";
+      } else {
+        // Small file or PDF → preview mode
+        const endpoint = isPdf ? "/records/upload-pdf" : "/records/upload-parse";
+        const res = await api.post(endpoint, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 120000,
+        });
+        setUploadRows(res.data.rows || []);
+        setUploadFileName(res.data.fileName || file.name);
+        setSuccess(`Extracted ${res.data.rows?.length || 0} row(s) from ${file.name}`);
+        if (uploadFileRef.current) uploadFileRef.current.value = "";
+      }
     } catch (err) {
       setError(err.response?.data?.message || "Upload failed");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleLoadMore = async () => {
+    if (!chunkJobId) return;
+    setLoadingMore(true);
+    try {
+      const offset = uploadRows.length;
+      const res = await api.get(`/records/extract-chunk/${chunkJobId}`, {
+        params: { offset, limit: 5000 },
+        timeout: 60000,
+      });
+      const newRows = res.data.rows || [];
+      if (newRows.length > 0) {
+        setUploadRows((prev) => [...prev, ...newRows]);
+        setDisplayedCount((prev) => prev + newRows.length);
+      }
+      if (!res.data.hasMore) {
+        setChunkJobId(null);
+        setSuccess(`All ${totalRowCount.toLocaleString()} row(s) loaded.`);
+      } else {
+        setSuccess(`Showing ${(offset + newRows.length).toLocaleString()} of ${totalRowCount.toLocaleString()} row(s). Click "Load More" for next batch.`);
+      }
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to load more rows");
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -369,9 +421,19 @@ export default function AdminRecords() {
             <div className="bg-card-bg border border-card-border rounded-lg overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 border-b border-card-border">
                 <div className="text-sm font-bold text-primary-header">
-                  Preview: {uploadFileName} — {uploadRows.length} row(s)
+                  Preview: {uploadFileName} — {uploadRows.length.toLocaleString()}
+                  {totalRowCount > uploadRows.length ? ` of ${totalRowCount.toLocaleString()}` : ""} row(s)
                 </div>
                 <div className="flex gap-2">
+                  {chunkJobId && (
+                    <button
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                      className="px-3 py-1.5 rounded text-xs font-medium bg-success/10 text-success border border-success/20 hover:opacity-90 disabled:opacity-50"
+                    >
+                      {loadingMore ? "Loading..." : `Load More (${(totalRowCount - uploadRows.length).toLocaleString()} remaining)`}
+                    </button>
+                  )}
                   <button
                     onClick={handleAddRow}
                     className="px-3 py-1.5 rounded text-xs font-medium bg-card-bg text-sidebar-text border border-card-border hover:opacity-90"
@@ -379,7 +441,7 @@ export default function AdminRecords() {
                     + Add Row
                   </button>
                   <button
-                    onClick={() => { setUploadRows([]); setUploadFileName(""); }}
+                    onClick={() => { setUploadRows([]); setUploadFileName(""); setChunkJobId(null); setTotalRowCount(0); setDisplayedCount(0); }}
                     className="px-3 py-1.5 rounded text-xs font-medium bg-error/10 text-error border border-error/20 hover:opacity-90"
                   >
                     Clear All
@@ -389,7 +451,7 @@ export default function AdminRecords() {
                     disabled={saving}
                     className="px-4 py-1.5 rounded text-xs font-medium bg-btn-primary text-btn-primary-text hover:opacity-90 disabled:opacity-50"
                   >
-                    {saving ? "Saving..." : `Save All (${uploadRows.length})`}
+                    {saving ? "Saving..." : `Save All (${uploadRows.length.toLocaleString()})`}
                   </button>
                 </div>
               </div>
@@ -436,14 +498,29 @@ export default function AdminRecords() {
                   </tbody>
                 </table>
               </div>
-              <div className="flex justify-end px-4 py-3 border-t border-card-border">
-                <button
-                  onClick={handleSaveAll}
-                  disabled={saving}
-                  className="px-6 py-2 rounded text-sm font-medium bg-btn-primary text-btn-primary-text hover:opacity-90 disabled:opacity-50"
-                >
-                  {saving ? "Saving..." : `Save All Records (${uploadRows.length})`}
-                </button>
+              <div className="flex justify-between items-center px-4 py-3 border-t border-card-border">
+                <div className="text-xs text-sidebar-text">
+                  Showing {uploadRows.length.toLocaleString()}
+                  {totalRowCount > uploadRows.length ? ` of ${totalRowCount.toLocaleString()}` : ""} row(s)
+                </div>
+                <div className="flex gap-2">
+                  {chunkJobId && (
+                    <button
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                      className="px-4 py-2 rounded text-sm font-medium bg-success/10 text-success border border-success/20 hover:opacity-90 disabled:opacity-50"
+                    >
+                      {loadingMore ? "Loading..." : `Load More (${(totalRowCount - uploadRows.length).toLocaleString()} remaining)`}
+                    </button>
+                  )}
+                  <button
+                    onClick={handleSaveAll}
+                    disabled={saving}
+                    className="px-6 py-2 rounded text-sm font-medium bg-btn-primary text-btn-primary-text hover:opacity-90 disabled:opacity-50"
+                  >
+                    {saving ? "Saving..." : `Save All Records (${uploadRows.length.toLocaleString()})`}
+                  </button>
+                </div>
               </div>
             </div>
           )}

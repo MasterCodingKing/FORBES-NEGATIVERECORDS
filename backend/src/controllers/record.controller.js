@@ -1,6 +1,8 @@
 const { prisma } = require("../models");
 const { logAudit } = require("../middleware/audit.middleware");
 const { parsePaginationParams, paginatedResponse } = require("../utils/pagination");
+const { isInternalClient } = require("../utils/roles");
+const { callOcrService, callOcrServicePdf, fetchOcrChunk, fetchAllOcrChunks } = require("../utils/ocr-service");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
@@ -70,53 +72,67 @@ const uploadAndProcess = async (req, res) => {
 
 /**
  * Background OCR processing for a batch.
- * Extracts text from the uploaded file and stores it.
+ * Delegates extraction to the Python OCR microservice for better accuracy.
  */
 async function processOcrBatch(batchId, filePath) {
-  const { extractText } = require("../utils/ocr");
-
   try {
     await prisma.ocrBatch.update({
       where: { id: batchId },
       data: { status: "processing" },
     });
 
-    const text = await extractText(filePath);
+    // Call Python OCR service for extraction
+    const result = await callOcrService(filePath);
+    let rows = result.rows || [];
 
-    // Parse extracted text into potential records.
-    // This is a best-effort parser — structure depends on the input document.
-    // For now, store the raw text and mark completed.
-    // In production, you would implement format-specific parsers here.
-    const lines = text
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0);
+    // If the result is chunked, fetch all remaining chunks
+    if (result.chunked && result.jobId && result.hasMore) {
+      rows = await fetchAllOcrChunks(result.jobId, rows, result.rowCount, result.chunkSize || 5000);
+    }
 
     let recordsCreated = 0;
 
-    // Attempt simple CSV-like line parsing: one record per non-empty line
-    // Each line is stored as a Company-type record with the text in details
-    // This can be enhanced with structured parsing later.
-    if (lines.length > 0) {
-      // Store the full extracted text as a single record with details
-      await prisma.negativeRecord.create({
-        data: {
-          type: "Company",
-          companyName: `OCR Batch #${batchId}`,
-          caseNo: `OCR-${batchId}`,
-          plaintiff: "OCR Extracted",
-          caseType: "OCR",
-          courtType: "OCR",
-          branch: "OCR",
-          dateFiled: new Date(),
-          details: text.slice(0, 65000), // Truncate to fit TEXT column
-          source: `OCR Upload (${path.basename(filePath)})`,
-          isScanned: 1,
-          isScannedPdf: filePath.toLowerCase().endsWith(".pdf") ? 1 : 0,
-          ocrBatchId: batchId,
-        },
-      });
-      recordsCreated = 1;
+    if (rows.length > 0) {
+      // Insert extracted rows as structured records
+      const CHUNK_SIZE = 1000;
+      for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+        const chunk = rows.slice(i, i + CHUNK_SIZE);
+        try {
+          const data = chunk.map((r) => ({
+            type: r.type || "Individual",
+            firstName: r.firstName || null,
+            middleName: r.middleName || null,
+            lastName: r.lastName || null,
+            alias: r.alias || null,
+            companyName: r.companyName || null,
+            caseNo: r.caseNo || null,
+            plaintiff: r.plaintiff || null,
+            caseType: r.caseType || null,
+            courtType: r.courtType || null,
+            branch: r.branch || null,
+            city: r.city || null,
+            dateFiled: r.dateFiled ? new Date(r.dateFiled) : null,
+            bounce: r.bounce || null,
+            decline: r.decline || null,
+            delinquent: r.delinquent || null,
+            telecom: r.telecom || null,
+            watch: r.watch || null,
+            isScanned: 1,
+            isScannedPdf: filePath.toLowerCase().endsWith(".pdf") ? 1 : 0,
+            details: r.details || null,
+            source: r.source || `OCR Upload (${path.basename(filePath)})`,
+            ocrBatchId: batchId,
+          }));
+
+          const insertResult = await prisma.negativeRecord.createMany({
+            data,
+            skipDuplicates: true,
+          });
+          recordsCreated += insertResult.count;
+        } catch (chunkErr) {
+          console.error(`[OCR Batch ${batchId}] Chunk error at offset ${i}:`, chunkErr.message);
+        }
+      }
     }
 
     await prisma.ocrBatch.update({
@@ -974,31 +990,32 @@ const uploadAndParse = async (req, res) => {
       return res.status(400).json({ message: "File is required" });
     }
 
-    const ext = path.extname(req.file.originalname).toLowerCase();
-    let rows = [];
-
-    if (ext === ".xls" || ext === ".xlsx") {
-      const buffer = fs.readFileSync(req.file.path);
-      rows = parseExcelBuffer(buffer);
-    } else if (ext === ".pdf") {
-      rows = await parsePdfFile(req.file.path);
-    } else {
-      // Image files — OCR
-      const { extractText } = require("../utils/ocr");
-      const text = await extractText(req.file.path);
-      rows = parsePdfText(text);
-    }
+    // Delegate all extraction to the Python OCR microservice
+    const result = await callOcrService(req.file.path);
+    const rows = result.rows || [];
 
     // Clean up uploaded file
     try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
 
     await logAudit(req, "FILE_UPLOAD_PARSE", "negative_records", 0);
 
-    return res.json({
-      message: `Extracted ${rows.length} row(s)`,
+    // Pass chunking info through to the frontend
+    const response = {
+      message: `Extracted ${result.rowCount || rows.length} row(s)`,
       fileName: req.file.originalname,
       rows,
-    });
+      rowCount: result.rowCount || rows.length,
+    };
+
+    if (result.chunked) {
+      response.chunked = true;
+      response.jobId = result.jobId;
+      response.chunkSize = result.chunkSize;
+      response.hasMore = result.hasMore;
+      response.offset = result.offset || 0;
+    }
+
+    return res.json(response);
   } catch (err) {
     // Clean up on error
     if (req.file?.path) {
@@ -1009,7 +1026,172 @@ const uploadAndParse = async (req, res) => {
 };
 
 /**
- * POST /records/bulk-insert
+ * POST /records/upload-spreadsheet
+ * Handles large CSV/Excel uploads with background processing.
+ * Creates an OcrBatch job and processes asynchronously.
+ */
+const uploadSpreadsheetAndProcess = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "File is required" });
+    }
+
+    const batch = await prisma.ocrBatch.create({
+      data: {
+        fileName: req.file.originalname,
+        filePath: req.file.path,
+        status: "pending",
+        uploadedBy: req.user.id,
+      },
+    });
+
+    await logAudit(req, "SPREADSHEET_UPLOAD", "ocr_batches", batch.id);
+
+    // Return immediately — process in background
+    res.status(201).json({
+      message: "File uploaded and queued for processing",
+      batch: { id: batch.id, fileName: batch.fileName, status: batch.status },
+    });
+
+    // Begin async processing
+    processSpreadsheetJob(batch.id, req.file.path).catch((err) => {
+      console.error(`Spreadsheet batch ${batch.id} failed:`, err.message);
+    });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Background job: parse spreadsheet (CSV or Excel) and insert records in chunks.
+ */
+async function processSpreadsheetJob(batchId, filePath) {
+  try {
+    await prisma.ocrBatch.update({
+      where: { id: batchId },
+      data: { status: "processing" },
+    });
+
+    // Delegate extraction to Python OCR microservice
+    const result = await callOcrService(filePath);
+    const rows = result.rows || [];
+
+    // Insert in chunks of 1000 using createMany
+    const CHUNK_SIZE = 1000;
+    let totalInserted = 0;
+    let totalErrors = 0;
+
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + CHUNK_SIZE);
+
+      try {
+        const data = chunk.map((r) => ({
+          type: r.type || "Individual",
+          firstName: r.firstName || null,
+          middleName: r.middleName || null,
+          lastName: r.lastName || null,
+          alias: r.alias || null,
+          companyName: r.companyName || null,
+          caseNo: r.caseNo || null,
+          plaintiff: r.plaintiff || null,
+          caseType: r.caseType || null,
+          courtType: r.courtType || null,
+          branch: r.branch || null,
+          city: r.city || null,
+          dateFiled: r.dateFiled ? new Date(r.dateFiled) : null,
+          bounce: r.bounce || null,
+          decline: r.decline || null,
+          delinquent: r.delinquent || null,
+          telecom: r.telecom || null,
+          watch: r.watch || null,
+          isScanned: r.isScanned ? 1 : 0,
+          isScannedCsv: filePath.endsWith(".csv") ? 1 : 0,
+          isScannedPdf: 0,
+          details: r.details || null,
+          source: r.source || `Batch Upload #${batchId}`,
+          ocrBatchId: batchId,
+        }));
+
+        const result = await prisma.negativeRecord.createMany({
+          data,
+          skipDuplicates: true,
+        });
+        totalInserted += result.count;
+      } catch (err) {
+        console.error(`[Batch ${batchId}] Chunk error at offset ${i}:`, err.message);
+        totalErrors += chunk.length;
+      }
+
+      // Update progress
+      await prisma.ocrBatch.update({
+        where: { id: batchId },
+        data: { totalRecords: totalInserted },
+      });
+    }
+
+    await prisma.ocrBatch.update({
+      where: { id: batchId },
+      data: { status: "completed", totalRecords: totalInserted },
+    });
+
+    console.log(`[Batch ${batchId}] Completed: ${totalInserted} inserted, ${totalErrors} errors out of ${rows.length} total`);
+  } catch (err) {
+    console.error(`[Batch ${batchId}] Fatal error:`, err.message);
+    await prisma.ocrBatch.update({
+      where: { id: batchId },
+      data: { status: "failed" },
+    });
+  } finally {
+    // Clean up file
+    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+  }
+}
+
+/**
+ * POST /records/upload-pdf-extract
+ * Handles PDF uploads — extracts data and returns rows for preview.
+ */
+const uploadPdfAndParse = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "PDF file is required" });
+    }
+
+    // Delegate PDF extraction to the Python OCR microservice
+    const result = await callOcrServicePdf(req.file.path);
+    const rows = result.rows || [];
+
+    // Clean up uploaded file
+    try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+
+    await logAudit(req, "PDF_UPLOAD_PARSE", "negative_records", 0);
+
+    const response = {
+      message: `Extracted ${result.rowCount || rows.length} row(s) from PDF`,
+      fileName: req.file.originalname,
+      rows,
+      rowCount: result.rowCount || rows.length,
+    };
+
+    if (result.chunked) {
+      response.chunked = true;
+      response.jobId = result.jobId;
+      response.chunkSize = result.chunkSize;
+      response.hasMore = result.hasMore;
+      response.offset = result.offset || 0;
+    }
+
+    return res.json(response);
+  } catch (err) {
+    if (req.file?.path) {
+      try { fs.unlinkSync(req.file.path); } catch { /* ignore */ }
+    }
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+* POST /records/bulk-insert
  * Accepts an array of record objects and inserts them into the database.
  */
 const bulkInsert = async (req, res) => {
@@ -1075,4 +1257,38 @@ const bulkInsert = async (req, res) => {
   }
 };
 
-module.exports = { upload, uploadAndProcess, uploadAndParse, bulkInsert, createRecord, listRecords, search, getLockInfo, printRecord, getRecordDetails, getOcrBatchStatus };
+/**
+ * GET /records/extract-chunk/:jobId
+ * Proxy endpoint to fetch a chunk of extraction results from the OCR service.
+ */
+const getExtractionChunk = async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const offset = parseInt(req.query.offset) || 0;
+    const limit = parseInt(req.query.limit) || 5000;
+
+    const chunk = await fetchOcrChunk(jobId, offset, limit);
+    return res.json(chunk);
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+module.exports = {
+  upload,
+  uploadSpreadsheet,
+  uploadPdf,
+  uploadAndProcess,
+  uploadAndParse,
+  uploadSpreadsheetAndProcess,
+  uploadPdfAndParse,
+  bulkInsert,
+  createRecord,
+  listRecords,
+  search,
+  getLockInfo,
+  printRecord,
+  getRecordDetails,
+  getOcrBatchStatus,
+  getExtractionChunk,
+};

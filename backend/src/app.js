@@ -49,6 +49,20 @@ prisma
     console.error("Database connection failed", err);
   });
 
+// Check Python OCR service connectivity on startup (non-blocking)
+const { checkOcrServiceHealth } = require("./utils/ocr-service");
+checkOcrServiceHealth()
+  .then((ok) => {
+    if (ok) {
+      console.log(`OCR service connected at ${process.env.OCR_SERVICE_URL || "http://localhost:8000"}`);
+    } else {
+      console.warn(`⚠ OCR service not reachable at ${process.env.OCR_SERVICE_URL || "http://localhost:8000"} — file extraction will fail until it's started`);
+    }
+  })
+  .catch(() => {
+    console.warn("⚠ OCR service health check failed — file extraction will fail until it's started");
+  });
+
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
