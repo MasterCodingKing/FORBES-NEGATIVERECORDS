@@ -1276,8 +1276,6 @@ const getExtractionChunk = async (req, res) => {
 
 module.exports = {
   upload,
-  uploadSpreadsheet,
-  uploadPdf,
   uploadAndProcess,
   uploadAndParse,
   uploadSpreadsheetAndProcess,

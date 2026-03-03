@@ -43,13 +43,11 @@ export default function AdminRecords() {
   const [uploadFileName, setUploadFileName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [chunkJobId, setChunkJobId] = useState(null);
+  const [totalRowCount, setTotalRowCount] = useState(0);
+  const [displayedCount, setDisplayedCount] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const uploadFileRef = useRef(null);
-
-  // Background upload state (large spreadsheet files)
-  const [bgBatchId, setBgBatchId] = useState(null);
-  const [bgBatchStatus, setBgBatchStatus] = useState(null);
-  const [bgBatchRecords, setBgBatchRecords] = useState(0);
-  const bgPollRef = useRef(null);
 
   const handleChange = (e) => {
     const { name, value, type: inputType, checked } = e.target;
@@ -80,33 +78,22 @@ export default function AdminRecords() {
     const formData = new FormData();
     formData.append("file", file);
     setUploading(true);
-    setBgBatchId(null);
-    setBgBatchStatus(null);
-    setBgBatchRecords(0);
-
     try {
-      if (isSpreadsheet && file.size > 5 * 1024 * 1024) {
-        // Large spreadsheet → background processing
-        const res = await api.post("/records/upload-spreadsheet", formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-          timeout: 120000,
-        });
-        setBgBatchId(res.data.batch?.id);
-        setBgBatchStatus("pending");
-        setSuccess(`File queued for background processing: ${file.name}`);
-        if (uploadFileRef.current) uploadFileRef.current.value = "";
+      const res = await api.post("/records/upload-parse", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const rows = res.data.rows || [];
+      setUploadRows(rows);
+      setUploadFileName(res.data.fileName || file.name);
+      setTotalRowCount(res.data.rowCount || rows.length);
+      setDisplayedCount(rows.length);
+      if (res.data.chunked && res.data.jobId) {
+        setChunkJobId(res.data.jobId);
       } else {
-        // Small file or PDF → preview mode
-        const endpoint = isPdf ? "/records/upload-pdf" : "/records/upload-parse";
-        const res = await api.post(endpoint, formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-          timeout: 120000,
-        });
-        setUploadRows(res.data.rows || []);
-        setUploadFileName(res.data.fileName || file.name);
-        setSuccess(`Extracted ${res.data.rows?.length || 0} row(s) from ${file.name}`);
-        if (uploadFileRef.current) uploadFileRef.current.value = "";
+        setChunkJobId(null);
       }
+      setSuccess(`Extracted ${rows.length} row(s) from ${file.name}`);
+      if (uploadFileRef.current) uploadFileRef.current.value = "";
     } catch (err) {
       setError(err.response?.data?.message || "Upload failed");
     } finally {
