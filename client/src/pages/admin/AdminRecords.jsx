@@ -1,6 +1,10 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useMemo } from "react";
 import api from "../../api/axios";
 import DataTable from "../../components/DataTable";
+import { parseFile } from "../../utils/clientParser";
+
+const BATCH_SIZE = 500; // rows per API call
+const PAGE_SIZE = 100;  // rows visible in the preview table
 
 const emptyForm = {
   type: "Individual",
@@ -43,10 +47,8 @@ export default function AdminRecords() {
   const [uploadFileName, setUploadFileName] = useState("");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [chunkJobId, setChunkJobId] = useState(null);
-  const [totalRowCount, setTotalRowCount] = useState(0);
-  const [displayedCount, setDisplayedCount] = useState(0);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [saveProgress, setSaveProgress] = useState({ current: 0, total: 0, inserted: 0, errors: 0 });
+  const [previewPage, setPreviewPage] = useState(1);
   const uploadFileRef = useRef(null);
 
   const handleChange = (e) => {
@@ -75,58 +77,30 @@ export default function AdminRecords() {
     const file = uploadFileRef.current?.files?.[0];
     if (!file) return setError("Select a file");
 
-    const formData = new FormData();
-    formData.append("file", file);
     setUploading(true);
+    setPreviewPage(1);
+    const startTime = performance.now();
     try {
-      const res = await api.post("/records/upload-parse", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      const rows = res.data.rows || [];
+      const rows = await parseFile(file);
+      const elapsed = ((performance.now() - startTime) / 1000).toFixed(2);
       setUploadRows(rows);
-      setUploadFileName(res.data.fileName || file.name);
-      setTotalRowCount(res.data.rowCount || rows.length);
-      setDisplayedCount(rows.length);
-      if (res.data.chunked && res.data.jobId) {
-        setChunkJobId(res.data.jobId);
-      } else {
-        setChunkJobId(null);
-      }
-      setSuccess(`Extracted ${rows.length} row(s) from ${file.name}`);
+      setUploadFileName(file.name);
+      setSuccess(`Extracted ${rows.length.toLocaleString()} row(s) from ${file.name} in ${elapsed}s`);
       if (uploadFileRef.current) uploadFileRef.current.value = "";
     } catch (err) {
-      setError(err.response?.data?.message || "Upload failed");
+      setError(err.message || "File parsing failed");
     } finally {
       setUploading(false);
     }
   };
 
-  const handleLoadMore = async () => {
-    if (!chunkJobId) return;
-    setLoadingMore(true);
-    try {
-      const offset = uploadRows.length;
-      const res = await api.get(`/records/extract-chunk/${chunkJobId}`, {
-        params: { offset, limit: 5000 },
-        timeout: 60000,
-      });
-      const newRows = res.data.rows || [];
-      if (newRows.length > 0) {
-        setUploadRows((prev) => [...prev, ...newRows]);
-        setDisplayedCount((prev) => prev + newRows.length);
-      }
-      if (!res.data.hasMore) {
-        setChunkJobId(null);
-        setSuccess(`All ${totalRowCount.toLocaleString()} row(s) loaded.`);
-      } else {
-        setSuccess(`Showing ${(offset + newRows.length).toLocaleString()} of ${totalRowCount.toLocaleString()} row(s). Click "Load More" for next batch.`);
-      }
-    } catch (err) {
-      setError(err.response?.data?.message || "Failed to load more rows");
-    } finally {
-      setLoadingMore(false);
-    }
-  };
+  // Paginated preview slice
+  const previewTotalPages = Math.max(1, Math.ceil(uploadRows.length / PAGE_SIZE));
+  const previewSlice = useMemo(
+    () => uploadRows.slice((previewPage - 1) * PAGE_SIZE, previewPage * PAGE_SIZE),
+    [uploadRows, previewPage]
+  );
+  const previewStartIdx = (previewPage - 1) * PAGE_SIZE;
 
   const handleCellChange = useCallback((rowIdx, key, value) => {
     setUploadRows((prev) => {
@@ -152,19 +126,39 @@ export default function AdminRecords() {
     setSuccess("");
     if (uploadRows.length === 0) return setError("No rows to save");
     setSaving(true);
+
+    const total = uploadRows.length;
+    let totalInserted = 0;
+    let totalErrors = 0;
+
+    setSaveProgress({ current: 0, total, inserted: 0, errors: 0 });
+
     try {
-      const res = await api.post("/records/bulk-insert", { records: uploadRows });
-      setSuccess(res.data.message);
-      if (res.data.errors?.length) {
-        setError(`Some rows failed: ${res.data.errors.map((e) => `Row ${e.row}: ${e.message}`).join("; ")}`);
+      for (let i = 0; i < total; i += BATCH_SIZE) {
+        const batch = uploadRows.slice(i, i + BATCH_SIZE);
+        try {
+          const res = await api.post("/records/bulk-insert", { records: batch });
+          totalInserted += res.data.inserted || 0;
+          totalErrors += res.data.errors?.length || 0;
+        } catch (err) {
+          totalErrors += batch.length;
+        }
+        setSaveProgress({ current: Math.min(i + BATCH_SIZE, total), total, inserted: totalInserted, errors: totalErrors });
+      }
+
+      setSuccess(`Done! ${totalInserted.toLocaleString()} record(s) inserted${totalErrors > 0 ? `, ${totalErrors} error(s)` : ""}`);
+      if (totalErrors > 0) {
+        setError(`${totalErrors} record(s) failed to insert`);
       }
       setUploadRows([]);
       setUploadFileName("");
+      setPreviewPage(1);
       setRefreshKey((k) => k + 1);
     } catch (err) {
       setError(err.response?.data?.message || "Save failed");
     } finally {
       setSaving(false);
+      setSaveProgress({ current: 0, total: 0, inserted: 0, errors: 0 });
     }
   };
 
@@ -383,14 +377,15 @@ export default function AdminRecords() {
           {/* Upload form */}
           <form onSubmit={handleUploadParse} className="bg-card-bg border border-card-border rounded-lg p-4 space-y-3">
             <p className="text-sm text-sidebar-text">
-              Upload an Excel file (.xls, .xlsx) or PDF (including scanned PDFs) to extract records.
+              Upload a CSV (.csv), Excel (.xls, .xlsx), or PDF file to extract records.
+              Parsing runs entirely in your browser — no server upload needed.
               You can review and edit the data before saving.
             </p>
             <div className="flex items-center gap-3">
               <input
                 ref={uploadFileRef}
                 type="file"
-                accept=".xls,.xlsx,.pdf,.png,.jpg,.jpeg"
+                accept=".csv,.xls,.xlsx,.pdf"
                 className="block text-sm text-sidebar-text file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-nav-bg file:text-primary-on-dark hover:file:opacity-90"
               />
               <button
@@ -401,26 +396,43 @@ export default function AdminRecords() {
                 {uploading ? "Processing..." : "Upload & Extract"}
               </button>
             </div>
+            {uploading && (
+              <div className="flex items-center gap-2 text-sm text-sidebar-text">
+                <svg className="animate-spin h-4 w-4 text-primary-header" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                Parsing file in background... (browser stays responsive)
+              </div>
+            )}
           </form>
 
-          {/* Editable table preview */}
-          {uploadRows.length > 0 && (
+          {/* Save progress overlay */}
+          {saving && saveProgress.total > 0 && (
+            <div className="bg-card-bg border border-card-border rounded-lg p-4 space-y-2">
+              <div className="flex items-center justify-between text-sm font-medium text-primary-header">
+                <span>Saving records...</span>
+                <span>{saveProgress.current.toLocaleString()} / {saveProgress.total.toLocaleString()}</span>
+              </div>
+              <div className="w-full bg-page-bg rounded-full h-3 overflow-hidden">
+                <div
+                  className="bg-primary-header h-3 rounded-full transition-all duration-300"
+                  style={{ width: `${Math.round((saveProgress.current / saveProgress.total) * 100)}%` }}
+                />
+              </div>
+              <div className="flex gap-4 text-xs text-sidebar-text">
+                <span>Inserted: {saveProgress.inserted.toLocaleString()}</span>
+                {saveProgress.errors > 0 && <span className="text-error">Errors: {saveProgress.errors}</span>}
+                <span>Batch size: {BATCH_SIZE}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Editable table preview — paginated */}
+          {uploadRows.length > 0 && !saving && (
             <div className="bg-card-bg border border-card-border rounded-lg overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-card-border">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-card-border flex-wrap gap-2">
                 <div className="text-sm font-bold text-primary-header">
-                  Preview: {uploadFileName} — {uploadRows.length.toLocaleString()}
-                  {totalRowCount > uploadRows.length ? ` of ${totalRowCount.toLocaleString()}` : ""} row(s)
+                  Preview: {uploadFileName} — {uploadRows.length.toLocaleString()} row(s)
                 </div>
-                <div className="flex gap-2">
-                  {chunkJobId && (
-                    <button
-                      onClick={handleLoadMore}
-                      disabled={loadingMore}
-                      className="px-3 py-1.5 rounded text-xs font-medium bg-success/10 text-success border border-success/20 hover:opacity-90 disabled:opacity-50"
-                    >
-                      {loadingMore ? "Loading..." : `Load More (${(totalRowCount - uploadRows.length).toLocaleString()} remaining)`}
-                    </button>
-                  )}
+                <div className="flex gap-2 flex-wrap">
                   <button
                     onClick={handleAddRow}
                     className="px-3 py-1.5 rounded text-xs font-medium bg-card-bg text-sidebar-text border border-card-border hover:opacity-90"
@@ -428,7 +440,7 @@ export default function AdminRecords() {
                     + Add Row
                   </button>
                   <button
-                    onClick={() => { setUploadRows([]); setUploadFileName(""); setChunkJobId(null); setTotalRowCount(0); setDisplayedCount(0); }}
+                    onClick={() => { setUploadRows([]); setUploadFileName(""); setPreviewPage(1); }}
                     className="px-3 py-1.5 rounded text-xs font-medium bg-error/10 text-error border border-error/20 hover:opacity-90"
                   >
                     Clear All
@@ -438,7 +450,7 @@ export default function AdminRecords() {
                     disabled={saving}
                     className="px-4 py-1.5 rounded text-xs font-medium bg-btn-primary text-btn-primary-text hover:opacity-90 disabled:opacity-50"
                   >
-                    {saving ? "Saving..." : `Save All (${uploadRows.length.toLocaleString()})`}
+                    Save All ({uploadRows.length.toLocaleString()})
                   </button>
                 </div>
               </div>
@@ -456,56 +468,81 @@ export default function AdminRecords() {
                     </tr>
                   </thead>
                   <tbody>
-                    {uploadRows.map((row, idx) => (
-                      <tr
-                        key={idx}
-                        className={`border-b border-card-border ${idx % 2 === 0 ? "bg-page-bg" : "bg-card-bg"} hover:bg-primary-header/5`}
-                      >
-                        <td className="px-2 py-1 text-xs text-sidebar-text">{idx + 1}</td>
-                        {UPLOAD_COLUMNS.map((col) => (
-                          <td key={col.key} className="px-1 py-1">
-                            <input
-                              value={row[col.key] || ""}
-                              onChange={(e) => handleCellChange(idx, col.key, e.target.value)}
-                              className="w-full border border-card-border rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary-header bg-transparent"
-                            />
+                    {previewSlice.map((row, localIdx) => {
+                      const globalIdx = previewStartIdx + localIdx;
+                      return (
+                        <tr
+                          key={globalIdx}
+                          className={`border-b border-card-border ${globalIdx % 2 === 0 ? "bg-page-bg" : "bg-card-bg"} hover:bg-primary-header/5`}
+                        >
+                          <td className="px-2 py-1 text-xs text-sidebar-text">{globalIdx + 1}</td>
+                          {UPLOAD_COLUMNS.map((col) => (
+                            <td key={col.key} className="px-1 py-1">
+                              <input
+                                value={row[col.key] || ""}
+                                onChange={(e) => handleCellChange(globalIdx, col.key, e.target.value)}
+                                className="w-full border border-card-border rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary-header bg-transparent"
+                              />
+                            </td>
+                          ))}
+                          <td className="px-2 py-1 text-center">
+                            <button
+                              onClick={() => handleDeleteRow(globalIdx)}
+                              className="text-error hover:text-error/80 text-xs font-medium"
+                              title="Remove row"
+                            >
+                              ✕
+                            </button>
                           </td>
-                        ))}
-                        <td className="px-2 py-1 text-center">
-                          <button
-                            onClick={() => handleDeleteRow(idx)}
-                            className="text-error hover:text-error/80 text-xs font-medium"
-                            title="Remove row"
-                          >
-                            ✕
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
+              {/* Pagination footer */}
               <div className="flex justify-between items-center px-4 py-3 border-t border-card-border">
                 <div className="text-xs text-sidebar-text">
-                  Showing {uploadRows.length.toLocaleString()}
-                  {totalRowCount > uploadRows.length ? ` of ${totalRowCount.toLocaleString()}` : ""} row(s)
+                  Showing {previewStartIdx + 1}–{Math.min(previewStartIdx + PAGE_SIZE, uploadRows.length)} of {uploadRows.length.toLocaleString()} row(s)
                 </div>
-                <div className="flex gap-2">
-                  {chunkJobId && (
-                    <button
-                      onClick={handleLoadMore}
-                      disabled={loadingMore}
-                      className="px-4 py-2 rounded text-sm font-medium bg-success/10 text-success border border-success/20 hover:opacity-90 disabled:opacity-50"
-                    >
-                      {loadingMore ? "Loading..." : `Load More (${(totalRowCount - uploadRows.length).toLocaleString()} remaining)`}
-                    </button>
-                  )}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setPreviewPage(1)}
+                    disabled={previewPage === 1}
+                    className="px-2 py-1 rounded text-xs border border-card-border disabled:opacity-30 hover:bg-primary-header/10"
+                  >
+                    ««
+                  </button>
+                  <button
+                    onClick={() => setPreviewPage((p) => Math.max(1, p - 1))}
+                    disabled={previewPage === 1}
+                    className="px-2 py-1 rounded text-xs border border-card-border disabled:opacity-30 hover:bg-primary-header/10"
+                  >
+                    ‹
+                  </button>
+                  <span className="px-2 text-xs text-sidebar-text">
+                    Page {previewPage} / {previewTotalPages}
+                  </span>
+                  <button
+                    onClick={() => setPreviewPage((p) => Math.min(previewTotalPages, p + 1))}
+                    disabled={previewPage === previewTotalPages}
+                    className="px-2 py-1 rounded text-xs border border-card-border disabled:opacity-30 hover:bg-primary-header/10"
+                  >
+                    ›
+                  </button>
+                  <button
+                    onClick={() => setPreviewPage(previewTotalPages)}
+                    disabled={previewPage === previewTotalPages}
+                    className="px-2 py-1 rounded text-xs border border-card-border disabled:opacity-30 hover:bg-primary-header/10"
+                  >
+                    »»
+                  </button>
                   <button
                     onClick={handleSaveAll}
                     disabled={saving}
-                    className="px-6 py-2 rounded text-sm font-medium bg-btn-primary text-btn-primary-text hover:opacity-90 disabled:opacity-50"
+                    className="ml-2 px-4 py-1.5 rounded text-xs font-medium bg-btn-primary text-btn-primary-text hover:opacity-90 disabled:opacity-50"
                   >
-                    {saving ? "Saving..." : `Save All Records (${uploadRows.length.toLocaleString()})`}
+                    Save All Records ({uploadRows.length.toLocaleString()})
                   </button>
                 </div>
               </div>

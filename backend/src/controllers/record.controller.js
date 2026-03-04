@@ -1194,6 +1194,16 @@ const uploadPdfAndParse = async (req, res) => {
 * POST /records/bulk-insert
  * Accepts an array of record objects and inserts them into the database.
  */
+// Returns a valid Date within 1900–2100, or null for garbage/out-of-range values
+const safeDateFiled = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return null;
+  const year = d.getFullYear();
+  if (year < 1900 || year > 2100) return null;
+  return d;
+};
+
 const bulkInsert = async (req, res) => {
   try {
     const { records } = req.body;
@@ -1201,56 +1211,54 @@ const bulkInsert = async (req, res) => {
       return res.status(400).json({ message: "records array is required and must not be empty" });
     }
 
-    if (records.length > 500) {
-      return res.status(400).json({ message: "Maximum 500 records per batch" });
+    if (records.length > 1000) {
+      return res.status(400).json({ message: "Maximum 1000 records per batch" });
     }
 
-    const created = [];
-    const errors = [];
+    // Coerce a value to string | null, truncated to max length to prevent "value too long" errors
+    const toStr = (v, max = 255) => {
+      if (v === null || v === undefined || v === "") return null;
+      const s = String(v).trim();
+      return s ? s.slice(0, max) : null;
+    };
 
-    for (let i = 0; i < records.length; i++) {
-      const r = records[i];
-      try {
-        const type = r.type || "Individual";
-        const record = await prisma.negativeRecord.create({
-          data: {
-            type,
-            firstName: r.firstName || null,
-            middleName: r.middleName || null,
-            lastName: r.lastName || null,
-            alias: r.alias || null,
-            companyName: r.companyName || null,
-            caseNo: r.caseNo || null,
-            plaintiff: r.plaintiff || null,
-            caseType: r.caseType || null,
-            courtType: r.courtType || null,
-            branch: r.branch || null,
-            city: r.city || null,
-            dateFiled: r.dateFiled ? new Date(r.dateFiled) : null,
-            bounce: r.bounce || null,
-            decline: r.decline || null,
-            delinquent: r.delinquent || null,
-            telecom: r.telecom || null,
-            watch: r.watch || null,
-            isScanned: r.isScanned ? 1 : 0,
-            isScannedCsv: r.isScannedCsv ? 1 : 0,
-            isScannedPdf: r.isScannedPdf ? 1 : 0,
-            details: r.details || null,
-            source: r.source || null,
-          },
-        });
-        created.push(record);
-      } catch (err) {
-        errors.push({ row: i + 1, message: err.message });
-      }
-    }
+    const data = records.map((r) => ({
+      type: toStr(r.type, 50) || "Individual",
+      firstName: toStr(r.firstName, 120),
+      middleName: toStr(r.middleName, 120),
+      lastName: toStr(r.lastName, 120),
+      alias: toStr(r.alias, 120),
+      companyName: toStr(r.companyName, 200),
+      caseNo: toStr(r.caseNo, 100),
+      plaintiff: toStr(r.plaintiff, 200),
+      caseType: toStr(r.caseType, 100),
+      courtType: toStr(r.courtType, 100),
+      branch: toStr(r.branch, 150),
+      city: toStr(r.city, 150),
+      dateFiled: safeDateFiled(r.dateFiled),
+      bounce: toStr(r.bounce, 100),
+      decline: toStr(r.decline, 100),
+      delinquent: toStr(r.delinquent, 100),
+      telecom: toStr(r.telecom, 100),
+      watch: toStr(r.watch, 100),
+      isScanned: r.isScanned ? 1 : 0,
+      isScannedCsv: r.isScannedCsv ? 1 : 0,
+      isScannedPdf: r.isScannedPdf ? 1 : 0,
+      details: toStr(r.details, 65535),
+      source: toStr(r.source, 255),
+    }));
 
-    await logAudit(req, "RECORD_BULK_INSERT", "negative_records", created.length);
+    const result = await prisma.negativeRecord.createMany({
+      data,
+      skipDuplicates: true,
+    });
+
+    await logAudit(req, "RECORD_BULK_INSERT", "negative_records", result.count);
 
     return res.status(201).json({
-      message: `${created.length} record(s) inserted, ${errors.length} error(s)`,
-      inserted: created.length,
-      errors,
+      message: `${result.count} record(s) inserted`,
+      inserted: result.count,
+      errors: [],
     });
   } catch (err) {
     return res.status(500).json({ message: err.message });
