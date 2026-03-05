@@ -439,8 +439,8 @@ const search = async (req, res) => {
         },
       });
 
-      if (existingLock && existingLock.clientId !== user.clientId) {
-        // Locked by another affiliate — check if current user has an approved access request
+      if (existingLock && existingLock.lockedBy !== userId) {
+        // Locked by another user — check if current user has an approved access request
         const approvedAccess = await prisma.searchAccessRequest.findFirst({
           where: {
             searchLockId: existingLock.id,
@@ -950,11 +950,11 @@ const printSearchResults = async (req, res) => {
       searchTermStr = searchName.toLowerCase();
     }
 
-    // Block print if this search term is locked by a different client via SearchLock
+    // Block print if this search term is locked by a different user via SearchLock
     const searchLock = await prisma.searchLock.findUnique({
       where: { searchTerm: searchTermStr },
     });
-    if (searchLock && searchLock.clientId !== user.clientId) {
+    if (searchLock && searchLock.lockedBy !== userId) {
       // Check if the user has an approved access request
       const approvedAccess = await prisma.searchAccessRequest.findFirst({
         where: {
@@ -1086,8 +1086,8 @@ const requestSearchAccess = async (req, res) => {
       return res.status(400).json({ message: "This search is not locked by another affiliate" });
     }
 
-    if (searchLock.clientId === user.clientId) {
-      return res.status(400).json({ message: "This search is already locked to your affiliate" });
+    if (searchLock.lockedBy === userId) {
+      return res.status(400).json({ message: "This search is already locked to you" });
     }
 
     // Check for existing pending request
