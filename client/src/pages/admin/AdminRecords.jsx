@@ -35,7 +35,6 @@ export default function AdminRecords() {
   const [success, setSuccess] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [form, setForm] = useState({ ...emptyForm });
-  const fileRef = useRef(null);
 
   // Detail view state
   const [detailRecord, setDetailRecord] = useState(null);
@@ -140,7 +139,7 @@ export default function AdminRecords() {
           const res = await api.post("/records/bulk-insert", { records: batch });
           totalInserted += res.data.inserted || 0;
           totalErrors += res.data.errors?.length || 0;
-        } catch (err) {
+        } catch {
           totalErrors += batch.length;
         }
         setSaveProgress({ current: Math.min(i + BATCH_SIZE, total), total, inserted: totalInserted, errors: totalErrors });

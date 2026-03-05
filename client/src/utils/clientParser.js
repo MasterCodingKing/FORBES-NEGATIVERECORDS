@@ -16,12 +16,6 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 const cleanString = (str) =>
   str ? str.replace(/^[.,'"]+|[.,'"]+$/g, "").trim() : "";
 
-function toCamelCase(str) {
-  return str
-    .toLowerCase()
-    .replace(/[^a-zA-Z0-9]+(.)/g, (_m, chr) => chr.toUpperCase());
-}
-
 // ───────────────────────────────────────────────
 // CSV / Excel helpers  (from OCR_CSV.js)
 // ───────────────────────────────────────────────
@@ -70,50 +64,6 @@ const HEADER_MAP = {
   source: "source",
   type: "type",
 };
-
-function normalizeHeader(raw) {
-  const key = raw.trim().toLowerCase().replace(/[_\s]+/g, " ");
-  return HEADER_MAP[key] || HEADER_MAP[key.replace(/ /g, "")] || toCamelCase(raw);
-}
-
-function convertToISO(input) {
-  if (!input || typeof input !== "string") return "";
-  const cleaned = input.replace(/\.+/g, ".");
-  const parts = cleaned.split(".");
-  if (parts.length !== 3) return "";
-  const [month, day, year] = parts;
-  if (isNaN(month) || isNaN(day) || isNaN(year)) return "";
-  try {
-    return new Date(`${year}-${month}-${day}`).toISOString();
-  } catch { return ""; }
-}
-
-function convertToISO2(input) {
-  if (!input || typeof input !== "string") return "";
-  const cleaned = input.replace(/^input\s+/i, "").trim();
-  try {
-    const date = new Date(cleaned);
-    if (isNaN(date.getTime())) return "";
-    return date.toISOString();
-  } catch { return ""; }
-}
-
-function smartDateParse(value) {
-  if (!value) return "";
-  const s = String(value).trim();
-  // Try MM.DD.YYYY
-  const iso1 = convertToISO(s);
-  if (iso1) return iso1;
-  // Try natural language like "Dec 16, 2024"
-  const iso2 = convertToISO2(s);
-  if (iso2) return iso2;
-  // Try native Date parse
-  try {
-    const d = new Date(s);
-    if (!isNaN(d.getTime())) return d.toISOString();
-  } catch { /* ignore */ }
-  return s; // return as-is
-}
 
 // ───────────────────────────────────────────────
 // CSV / Excel — delegate to Web Worker

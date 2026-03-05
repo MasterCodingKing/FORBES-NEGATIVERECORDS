@@ -38,11 +38,6 @@ export default function AdminBilling() {
   if (to) qp.push(`to=${to}`);
   fetchUrl += qp.join("&");
 
-  // Build export URL with filters
-  let exportUrl = "/export/billing/export?";
-  const ep = [...qp];
-  exportUrl += ep.join("&");
-
   const handleReset = () => {
     setClientId("");
     setUserId("");

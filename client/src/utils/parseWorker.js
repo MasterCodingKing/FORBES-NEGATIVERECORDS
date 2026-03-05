@@ -57,11 +57,11 @@ function smartDateParse(value) {
   if (dotParts.length === 3) {
     const [m, d, y] = dotParts;
     if (!isNaN(m) && !isNaN(d) && !isNaN(y) && y.length === 4) {
-      try { const dt = new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`); if (!isNaN(dt.getTime()) && isReasonableDate(dt)) return dt.toISOString(); } catch {}
+      try { const dt = new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`); if (!isNaN(dt.getTime()) && isReasonableDate(dt)) return dt.toISOString(); } catch { /* ignore */ }
     }
   }
   // Natural language / ISO
-  try { const dt = new Date(s); if (!isNaN(dt.getTime()) && isReasonableDate(dt)) return dt.toISOString(); } catch {}
+  try { const dt = new Date(s); if (!isNaN(dt.getTime()) && isReasonableDate(dt)) return dt.toISOString(); } catch { /* ignore */ }
   return s;
 }
 
