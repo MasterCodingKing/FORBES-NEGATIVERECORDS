@@ -8,6 +8,7 @@ const {
   exportNews,
   exportBranches,
   exportUnlockRequests,
+  exportBilling,
 } = require("../controllers/export.controller");
 
 // All export routes require Admin or Super Admin
@@ -19,5 +20,6 @@ router.get("/users/export", exportUsers);
 router.get("/news/export", exportNews);
 router.get("/sub-domains/export", exportBranches);
 router.get("/unlock-requests/export", exportUnlockRequests);
+router.get("/billing/export", exportBilling);
 
 module.exports = router;

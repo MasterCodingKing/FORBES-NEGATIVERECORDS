@@ -44,7 +44,7 @@ const create = async (req, res) => {
       clientCode, name, clientGroup,
       website, street, barangay, city, province, postalCode,
       telephone, fax, mobile, email,
-      billingType, creditLimit,
+      billingType, creditLimit, creditBalance,
     } = req.body;
 
     if (!clientCode || !name) {
@@ -55,6 +55,10 @@ const create = async (req, res) => {
     if (existing) {
       return res.status(409).json({ message: "Client code already exists" });
     }
+
+    // If clientGroup is "Outside", force billing type to Postpaid
+    const effectiveBillingType = clientGroup === "Outside" ? "Postpaid" : (billingType || "Postpaid");
+    const initialCredit = Number(creditBalance) || 0;
 
     const client = await prisma.client.create({
       data: {
@@ -71,12 +75,25 @@ const create = async (req, res) => {
         fax: fax || null,
         mobile: mobile || null,
         email: email || null,
-        billingType: billingType || "Postpaid",
-        creditBalance: 0,
-        creditLimit: billingType === "Prepaid" ? (creditLimit || 0) : null,
+        billingType: effectiveBillingType,
+        creditBalance: initialCredit,
+        creditLimit: effectiveBillingType === "Prepaid" ? (creditLimit || 0) : null,
         isActive: 1,
       },
     });
+
+    // If initial credit was provided, create a credit transaction
+    if (initialCredit > 0) {
+      await prisma.creditTransaction.create({
+        data: {
+          clientId: client.id,
+          amount: initialCredit,
+          type: "topup",
+          description: `Initial credit balance of ${initialCredit}`,
+          performedBy: req.user.id,
+        },
+      });
+    }
 
     await logAudit(req, "CLIENT_CREATE", "clients", client.id);
     return res.status(201).json(client);

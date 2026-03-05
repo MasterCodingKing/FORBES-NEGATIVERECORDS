@@ -19,6 +19,8 @@ const directoryRoutes = require("./routes/directory.routes");
 const notificationRoutes = require("./routes/notification.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const exportRoutes = require("./routes/export.routes");
+const auditRoutes = require("./routes/audit.routes");
+const billingRoutes = require("./routes/billing.routes");
 
 const app = express();
 
@@ -35,7 +37,8 @@ app.use(
   })
 );
 app.options("*", cors());
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // Connect to PostgreSQL via Prisma and seed initial data
@@ -80,5 +83,7 @@ app.use("/api/directory", directoryRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/export", exportRoutes);
+app.use("/api/audit-logs", auditRoutes);
+app.use("/api/billing", billingRoutes);
 
 module.exports = app;

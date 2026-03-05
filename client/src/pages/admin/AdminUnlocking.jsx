@@ -9,6 +9,9 @@ export default function AdminUnlocking() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  // Active tab: "records" for record unlock, "search" for search access
+  const [activeTab, setActiveTab] = useState("records");
+
   // View modal
   const [viewTarget, setViewTarget] = useState(null);
 
@@ -20,6 +23,14 @@ export default function AdminUnlocking() {
   const [denyTarget, setDenyTarget] = useState(null);
   const [denialReason, setDenialReason] = useState("");
   const [denyLoading, setDenyLoading] = useState(false);
+
+  // Search access request modals
+  const [saViewTarget, setSaViewTarget] = useState(null);
+  const [saApproveTarget, setSaApproveTarget] = useState(null);
+  const [saApproveLoading, setSaApproveLoading] = useState(false);
+  const [saDenyTarget, setSaDenyTarget] = useState(null);
+  const [saDenialReason, setSaDenialReason] = useState("");
+  const [saDenyLoading, setSaDenyLoading] = useState(false);
 
   // Toast
   const [toast, setToast] = useState(null);
@@ -38,13 +49,17 @@ export default function AdminUnlocking() {
   // Auto-open view modal when navigated from a notification
   useEffect(() => {
     const requestId = location.state?.requestId;
+    const tab = location.state?.tab;
+    if (tab === "search") {
+      setActiveTab("search");
+    }
     if (!requestId) return;
     // Clear state so refreshes don't re-trigger
     navigate(location.pathname, { replace: true, state: {} });
     api.get(`/unlock-requests/${requestId}`)
       .then((res) => setViewTarget(res.data))
       .catch(() => {});
-  }, [location.state?.requestId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [location.state?.requestId, location.state?.tab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleApprove = async () => {
     if (!approveTarget) return;
@@ -85,6 +100,137 @@ export default function AdminUnlocking() {
       setDenyLoading(false);
     }
   };
+
+  // --- Search access request handlers ---
+  const handleSaApprove = async () => {
+    if (!saApproveTarget) return;
+    setError("");
+    setSaApproveLoading(true);
+    try {
+      await api.patch(`/unlock-requests/search-access/${saApproveTarget.id}/review`, { status: "approved" });
+      setSaApproveTarget(null);
+      setRefreshKey((k) => k + 1);
+      showToast("Search access request approved.", "success");
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to approve");
+    } finally {
+      setSaApproveLoading(false);
+    }
+  };
+
+  const handleSaDeny = async () => {
+    if (!saDenyTarget) return;
+    if (!saDenialReason.trim()) {
+      setError("Please provide a reason for denial.");
+      return;
+    }
+    setError("");
+    setSaDenyLoading(true);
+    try {
+      await api.patch(`/unlock-requests/search-access/${saDenyTarget.id}/review`, {
+        status: "denied",
+        denialReason: saDenialReason.trim(),
+      });
+      setSaDenyTarget(null);
+      setSaDenialReason("");
+      setRefreshKey((k) => k + 1);
+      showToast("Search access request denied.", "error");
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to deny");
+    } finally {
+      setSaDenyLoading(false);
+    }
+  };
+
+  const getSearchLockOwnerName = (r) => {
+    const u = r.searchLock?.user;
+    if (!u) return "—";
+    return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email;
+  };
+
+  const searchAccessColumns = [
+    { key: "id", label: "ID" },
+    {
+      key: "requester",
+      label: "Requested By",
+      sortable: false,
+      render: (r) => {
+        const u = r.requester;
+        return u ? [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email : "Unknown";
+      },
+    },
+    {
+      key: "affiliate",
+      label: "Affiliate",
+      sortable: false,
+      render: (r) => r.requester?.client?.name || "—",
+    },
+    {
+      key: "searchTerm",
+      label: "Search Term",
+      sortable: false,
+      render: (r) => r.searchLock?.searchTerm?.replace(/\|/g, " ") || "—",
+    },
+    {
+      key: "lockOwner",
+      label: "Locked By",
+      sortable: false,
+      render: (r) => {
+        const name = getSearchLockOwnerName(r);
+        const affiliate = r.searchLock?.user?.client?.name || "";
+        return affiliate ? `${name} (${affiliate})` : name;
+      },
+    },
+    { key: "reason", label: "Reason", render: (r) => r.reason || "—" },
+    {
+      key: "status",
+      label: "Status",
+      render: (r) => (
+        <span
+          className={`text-xs font-medium px-2 py-1 rounded ${
+            r.status === "approved"
+              ? "bg-success/10 text-success"
+              : r.status === "denied"
+              ? "bg-error/10 text-error"
+              : "bg-warning/10 text-warning"
+          }`}
+        >
+          {r.status}
+        </span>
+      ),
+    },
+    { key: "createdAt", label: "Date", render: (r) => new Date(r.createdAt).toLocaleString() },
+    {
+      key: "actions",
+      label: "Actions",
+      render: (r) => (
+        <div className="flex gap-2 items-center">
+          <button
+            onClick={() => { setError(""); setSaViewTarget(r); }}
+            className="text-primary-header text-xs font-medium hover:underline"
+          >
+            View
+          </button>
+          {r.status === "pending" && (
+            <>
+              <button
+                onClick={() => { setError(""); setSaApproveTarget(r); }}
+                className="text-success text-xs font-medium hover:underline"
+              >
+                Approve
+              </button>
+              <button
+                onClick={() => { setError(""); setSaDenialReason(""); setSaDenyTarget(r); }}
+                className="text-error text-xs font-medium hover:underline"
+              >
+                Deny
+              </button>
+            </>
+          )}
+        </div>
+      ),
+    },
+  ];
 
   const columns = [
     { key: "id", label: "ID" },
@@ -177,7 +323,35 @@ export default function AdminUnlocking() {
       <h2 className="text-xl font-bold text-primary-header mb-4">Unlocking Requests</h2>
       {error && <div className="bg-error/10 text-error text-sm rounded p-3 mb-4">{error}</div>}
 
-      <DataTable columns={columns} fetchUrl="/unlock-requests/all" api={api} refreshKey={refreshKey} searchable={false} exportable exportUrl="/export/unlock-requests" />
+      {/* Tabs */}
+      <div className="flex gap-2 mb-4">
+        {[
+          { key: "records", label: "Record Locks" },
+          { key: "search", label: "Search Access" },
+        ].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={`px-4 py-2 rounded text-sm font-medium ${
+              activeTab === t.key
+                ? "bg-sidebar-active text-sidebar-active-text"
+                : "bg-card-bg text-sidebar-text border border-card-border"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Record Unlock Requests Tab */}
+      {activeTab === "records" && (
+        <DataTable columns={columns} fetchUrl="/unlock-requests/all" api={api} refreshKey={refreshKey} searchable={false} exportable exportUrl="/export/unlock-requests" />
+      )}
+
+      {/* Search Access Requests Tab */}
+      {activeTab === "search" && (
+        <DataTable columns={searchAccessColumns} fetchUrl="/unlock-requests/search-access" api={api} refreshKey={refreshKey} searchable={false} />
+      )}
 
       {/* ── View Detail Modal ── */}
       {viewTarget && (
@@ -434,6 +608,198 @@ export default function AdminUnlocking() {
                 className="bg-error text-white px-4 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
               >
                 {denyLoading ? "Denying..." : "Confirm Denial"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Search Access View Modal ── */}
+      {saViewTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-page-bg rounded-xl shadow-xl w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-primary-header">Search Access Request</h3>
+              <button
+                onClick={() => setSaViewTarget(null)}
+                className="text-sidebar-text hover:text-primary-header text-xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+            <div className="mb-4">
+              <span
+                className={`text-xs font-semibold px-3 py-1 rounded-full ${
+                  saViewTarget.status === "approved"
+                    ? "bg-success/15 text-success"
+                    : saViewTarget.status === "denied"
+                    ? "bg-error/15 text-error"
+                    : "bg-warning/15 text-warning"
+                }`}
+              >
+                {saViewTarget.status.toUpperCase()}
+              </span>
+            </div>
+            <div className="space-y-4 text-sm">
+              <div className="bg-card-bg border border-card-border rounded-lg p-4">
+                <h4 className="font-semibold text-primary-header mb-2">Requestor Details</h4>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  <div>
+                    <span className="text-sidebar-text">Name</span>
+                    <p className="font-medium text-body-text">
+                      {saViewTarget.requester
+                        ? [saViewTarget.requester.firstName, saViewTarget.requester.lastName].filter(Boolean).join(" ") || "—"
+                        : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Affiliate</span>
+                    <p className="font-medium text-body-text">{saViewTarget.requester?.client?.name || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Email</span>
+                    <p className="font-medium text-body-text">{saViewTarget.requester?.email || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Branch</span>
+                    <p className="font-medium text-body-text">{saViewTarget.requester?.branch?.name || "—"}</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-card-bg border border-card-border rounded-lg p-4">
+                <h4 className="font-semibold text-primary-header mb-2">Lock Details</h4>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  <div>
+                    <span className="text-sidebar-text">Search Term</span>
+                    <p className="font-medium text-body-text">{saViewTarget.searchLock?.searchTerm?.replace(/\|/g, " ") || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Search Type</span>
+                    <p className="font-medium text-body-text">{saViewTarget.searchLock?.searchType || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Locked By</span>
+                    <p className="font-medium text-body-text">{getSearchLockOwnerName(saViewTarget)}</p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Lock Affiliate</span>
+                    <p className="font-medium text-body-text">{saViewTarget.searchLock?.user?.client?.name || "—"}</p>
+                  </div>
+                  <div>
+                    <span className="text-sidebar-text">Request Date</span>
+                    <p className="font-medium text-body-text">{new Date(saViewTarget.createdAt).toLocaleString()}</p>
+                  </div>
+                </div>
+                {saViewTarget.reason && (
+                  <div className="mt-2 pt-2 border-t border-card-border">
+                    <span className="text-sidebar-text">Reason for Access</span>
+                    <p className="font-medium text-body-text mt-0.5">{saViewTarget.reason}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2 mt-5 justify-end">
+              {saViewTarget.status === "pending" && (
+                <>
+                  <button
+                    onClick={() => { setSaViewTarget(null); setSaApproveTarget(saViewTarget); }}
+                    className="bg-success text-white px-4 py-2 rounded text-sm font-medium hover:opacity-90"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => { setSaViewTarget(null); setSaDenialReason(""); setSaDenyTarget(saViewTarget); }}
+                    className="bg-error text-white px-4 py-2 rounded text-sm font-medium hover:opacity-90"
+                  >
+                    Deny
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => setSaViewTarget(null)}
+                className="px-4 py-2 rounded text-sm font-medium bg-card-bg text-sidebar-text border border-card-border hover:bg-sidebar-bg"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Search Access Approve Modal ── */}
+      {saApproveTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-page-bg rounded-lg shadow-lg w-full max-w-md p-6">
+            <h3 className="text-lg font-bold text-primary-header mb-1">Approve Search Access</h3>
+            <p className="text-sm text-sidebar-text mb-4">
+              The requesting affiliate will gain access to print reports for this search term.
+            </p>
+            <div className="bg-card-bg border border-card-border rounded-lg p-3 mb-4 text-sm space-y-1">
+              <div><span className="font-medium">Requester:</span> {saApproveTarget.requester ? [saApproveTarget.requester.firstName, saApproveTarget.requester.lastName].filter(Boolean).join(" ") : "—"}</div>
+              <div><span className="font-medium">Affiliate:</span> {saApproveTarget.requester?.client?.name || "—"}</div>
+              <div><span className="font-medium">Search Term:</span> {saApproveTarget.searchLock?.searchTerm?.replace(/\|/g, " ") || "—"}</div>
+              <div><span className="font-medium">Locked By:</span> {getSearchLockOwnerName(saApproveTarget)} ({saApproveTarget.searchLock?.user?.client?.name || "—"})</div>
+              {saApproveTarget.reason && <div><span className="font-medium">Reason:</span> {saApproveTarget.reason}</div>}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setSaApproveTarget(null)}
+                disabled={saApproveLoading}
+                className="px-4 py-2 rounded text-sm font-medium bg-card-bg text-sidebar-text border border-card-border hover:opacity-90"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaApprove}
+                disabled={saApproveLoading}
+                className="bg-success text-white px-4 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
+              >
+                {saApproveLoading ? "Approving..." : "Confirm Approval"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Search Access Deny Modal ── */}
+      {saDenyTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-page-bg rounded-lg shadow-lg w-full max-w-md p-6">
+            <h3 className="text-lg font-bold text-primary-header mb-1">Deny Search Access</h3>
+            <p className="text-sm text-sidebar-text mb-4">
+              Please provide a reason for denial. The requesting affiliate will be notified.
+            </p>
+            <div className="bg-card-bg border border-card-border rounded-lg p-3 mb-4 text-sm space-y-1">
+              <div><span className="font-medium">Requester:</span> {saDenyTarget.requester ? [saDenyTarget.requester.firstName, saDenyTarget.requester.lastName].filter(Boolean).join(" ") : "—"}</div>
+              <div><span className="font-medium">Search Term:</span> {saDenyTarget.searchLock?.searchTerm?.replace(/\|/g, " ") || "—"}</div>
+              {saDenyTarget.reason && <div><span className="font-medium">Their Reason:</span> {saDenyTarget.reason}</div>}
+            </div>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-sidebar-text mb-1">
+                Reason for Denial <span className="text-error">*</span>
+              </label>
+              <textarea
+                value={saDenialReason}
+                onChange={(e) => setSaDenialReason(e.target.value)}
+                rows="3"
+                placeholder="Enter your reason for denying this request..."
+                className="w-full border border-card-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-header"
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => { setSaDenyTarget(null); setSaDenialReason(""); }}
+                disabled={saDenyLoading}
+                className="px-4 py-2 rounded text-sm font-medium bg-card-bg text-sidebar-text border border-card-border hover:opacity-90"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaDeny}
+                disabled={saDenyLoading || !saDenialReason.trim()}
+                className="bg-error text-white px-4 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
+              >
+                {saDenyLoading ? "Denying..." : "Confirm Denial"}
               </button>
             </div>
           </div>

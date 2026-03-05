@@ -117,6 +117,7 @@ const create = async (req, res) => {
         clientId: clientIdInt,
         branchId: branchIdInt,
         isApproved: 1,
+        isActive: 1,
         firstName: firstName || null,
         middleName: middleName || null,
         lastName: lastName || null,
@@ -151,9 +152,9 @@ const approve = async (req, res) => {
 
     const { roleId, clientId, branchId } = req.body;
     const updates = { isApproved: 1 };
-    if (roleId) updates.roleId = roleId;
-    if (clientId) updates.clientId = clientId;
-    if (branchId) updates.branchId = branchId;
+    if (roleId) updates.roleId = parseInt(roleId, 10);
+    if (clientId) updates.clientId = parseInt(clientId, 10);
+    if (branchId) updates.branchId = parseInt(branchId, 10);
 
     await prisma.user.update({
       where: { id: user.id },
@@ -177,17 +178,23 @@ const updateUser = async (req, res) => {
     }
 
     const allowedFields = [
-      "username", "email", "roleId", "clientId", "branchId", "isApproved",
+      "username", "email", "roleId", "clientId", "branchId", "isApproved", "isActive",
       "firstName", "middleName", "lastName",
       "telephone", "mobileNumber", "faxNumber",
       "primaryEmail", "alternateEmail1", "alternateEmail2",
       "areaHeadManager", "areaHeadManagerContact", "position", "department",
     ];
 
+    const numericFields = ["roleId", "clientId", "branchId", "isApproved", "isActive"];
+
     const updateData = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
-        updateData[field] = req.body[field];
+        if (numericFields.includes(field)) {
+          updateData[field] = parseInt(req.body[field], 10);
+        } else {
+          updateData[field] = req.body[field];
+        }
       }
     }
 

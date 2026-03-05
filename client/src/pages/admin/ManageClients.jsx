@@ -6,7 +6,7 @@ const emptyForm = {
   clientCode: "", name: "", clientGroup: "",
   website: "", street: "", barangay: "", city: "", province: "", postalCode: "",
   telephone: "", fax: "", mobile: "", email: "",
-  billingType: "Postpaid", creditLimit: ""
+  billingType: "Postpaid", creditLimit: "", creditBalance: ""
 };
 
 export default function ManageClients() {
@@ -17,7 +17,15 @@ export default function ManageClients() {
   const [success, setSuccess] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
 
-  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    const updates = { [name]: value };
+    // If clientGroup changes to Outside, force billing type to Postpaid
+    if (name === "clientGroup" && value === "Outside") {
+      updates.billingType = "Postpaid";
+    }
+    setForm((f) => ({ ...f, ...updates }));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -27,6 +35,8 @@ export default function ManageClients() {
       const payload = { ...form };
       if (payload.billingType === "Postpaid") delete payload.creditLimit;
       else payload.creditLimit = Number(payload.creditLimit) || 0;
+      if (!payload.creditBalance) delete payload.creditBalance;
+      else payload.creditBalance = Number(payload.creditBalance) || 0;
 
       if (editingId) {
         await api.put(`/clients/${editingId}`, payload);
@@ -60,7 +70,8 @@ export default function ManageClients() {
       mobile: row.mobile || "",
       email: row.email || "",
       billingType: row.billingType || "Postpaid",
-      creditLimit: row.creditLimit ?? ""
+      creditLimit: row.creditLimit ?? "",
+      creditBalance: ""
     });
     setEditingId(row.id);
     setShowForm(true);
@@ -136,7 +147,12 @@ export default function ManageClients() {
             </div>
             <div>
               <label className="block text-sm font-bold text-primary-header mb-1">Client Group <span className="text-error">*</span></label>
-              <input name="clientGroup" value={form.clientGroup} onChange={handleChange} className={inp} />
+              <select name="clientGroup" value={form.clientGroup} onChange={handleChange} className={inp}>
+                <option value="">Select Client Group</option>
+                <option value="Company Admin">Company Admin</option>
+                <option value="Affiliate Executive">Affiliate Executive</option>
+                <option value="Outside">Outside</option>
+              </select>
             </div>
           </div>
 
@@ -190,15 +206,25 @@ export default function ManageClients() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-bold text-primary-header mb-1">Billing Type</label>
-              <select name="billingType" value={form.billingType} onChange={handleChange} className={inp}>
+              <select name="billingType" value={form.billingType} onChange={handleChange} className={inp} disabled={form.clientGroup === "Outside"}>
                 <option value="Postpaid">Postpaid</option>
                 <option value="Prepaid">Prepaid</option>
               </select>
+              {form.clientGroup === "Outside" && (
+                <p className="text-xs text-sidebar-text mt-1">Outside clients are automatically set to Postpaid.</p>
+              )}
             </div>
             {form.billingType === "Prepaid" && (
               <div>
                 <label className="block text-sm font-bold text-primary-header mb-1">Credit Limit</label>
                 <input name="creditLimit" type="number" step="0.01" min="0" value={form.creditLimit} onChange={handleChange} placeholder="Credit Limit" className={inp} />
+              </div>
+            )}
+            {!editingId && (
+              <div>
+                <label className="block text-sm font-bold text-primary-header mb-1">Initial Credit Balance</label>
+                <input name="creditBalance" type="number" step="0.01" min="0" value={form.creditBalance} onChange={handleChange} placeholder="0.00" className={inp} />
+                <p className="text-xs text-sidebar-text mt-1">Will automatically reflect in Credit Management.</p>
               </div>
             )}
           </div>

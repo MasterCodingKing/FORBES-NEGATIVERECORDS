@@ -35,6 +35,21 @@ export default function NegativeRecordSearch() {
   const [showPrintConfirm, setShowPrintConfirm] = useState(false);
   const [pendingPrintRecord, setPendingPrintRecord] = useState(null);
 
+  // No-results / AFFIS lock state
+  const [noRecordsFound, setNoRecordsFound] = useState(false);
+  const [searchMeta, setSearchMeta] = useState(null);
+  const [isSearchLocked, setIsSearchLocked] = useState(false);
+  const [searchLockInfo, setSearchLockInfo] = useState(null);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [pendingSearchReportPrint, setPendingSearchReportPrint] = useState(false);
+
+  // Search access request state
+  const [searchAccessRequesting, setSearchAccessRequesting] = useState(false);
+  const [searchAccessPending, setSearchAccessPending] = useState(false);
+  const [searchAccessError, setSearchAccessError] = useState("");
+  const [showSearchAccessModal, setShowSearchAccessModal] = useState(false);
+  const [searchAccessReason, setSearchAccessReason] = useState("");
+
   // Toast state
   const [toast, setToast] = useState(null); // { message, type }
   const showToast = (message, type = "success") => {
@@ -47,6 +62,13 @@ export default function NegativeRecordSearch() {
     setError("");
     setResults([]);
     setLockedInfoView(null);
+    setNoRecordsFound(false);
+    setSearchMeta(null);
+    setIsSearchLocked(false);
+    setSearchLockInfo(null);
+    setSearchAccessPending(false);
+    setSearchAccessError("");
+    setHasSearched(true);
     setLoading(true);
     try {
       let url = `/records/search?type=${tab}`;
@@ -59,6 +81,21 @@ export default function NegativeRecordSearch() {
       }
       const res = await api.get(url);
       setResults(res.data.results);
+
+      if (res.data.noRecordsFound) {
+        setNoRecordsFound(true);
+        setSearchMeta(res.data.searchMeta);
+        if (res.data.isLocked) {
+          setIsSearchLocked(true);
+          setSearchLockInfo({
+            lockedByAffiliate: res.data.lockedByAffiliate,
+            lockedByName: res.data.lockedByName,
+          });
+          if (res.data.hasPendingRequest) {
+            setSearchAccessPending(true);
+          }
+        }
+      }
     } catch (err) {
       setError(err.response?.data?.message || "Search failed");
     } finally {
@@ -160,11 +197,15 @@ export default function NegativeRecordSearch() {
   const cancelPrint = () => {
     setShowPrintConfirm(false);
     setPendingPrintRecord(null);
+    setPendingSearchReportPrint(false);
   };
 
   const confirmPrint = () => {
     setShowPrintConfirm(false);
-    if (pendingPrintRecord) {
+    if (pendingSearchReportPrint) {
+      setPendingSearchReportPrint(false);
+      handlePrintSearchReport();
+    } else if (pendingPrintRecord) {
       handlePrint(pendingPrintRecord);
       setPendingPrintRecord(null);
     }
@@ -191,9 +232,81 @@ export default function NegativeRecordSearch() {
       // Clean up object URL after a delay
       setTimeout(() => window.URL.revokeObjectURL(url), 60000);
     } catch (err) {
-      setPrintError(err.response?.data?.message || "Failed to print record");
+      setPrintError(err.response?.data?.message || "Failed to print record check your credit");
     } finally {
       setPrintLoading(false);
+    }
+  };
+
+  const handlePrintSearchReport = async () => {
+    setPrintError("");
+    setPrintLoading(true);
+    try {
+      const body = { type: tab };
+      if (tab === "Individual") {
+        body.firstName = firstName.trim();
+        body.middleName = middleName.trim();
+        body.lastName = lastName.trim();
+      } else {
+        body.term = term.trim();
+      }
+      const res = await api.post("/records/print-search", body, {
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const printWindow = window.open(url, "_blank");
+      if (printWindow) {
+        printWindow.addEventListener("load", () => {
+          printWindow.focus();
+          printWindow.print();
+        });
+      }
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      setPrintError(err.response?.data?.message || "Failed to print report");
+    } finally {
+      setPrintLoading(false);
+    }
+  };
+
+  const requestSearchReportPrint = () => {
+    setPendingSearchReportPrint(true);
+    setShowPrintConfirm(true);
+  };
+
+  const openSearchAccessModal = () => {
+    setSearchAccessReason("");
+    setSearchAccessError("");
+    setShowSearchAccessModal(true);
+  };
+
+  const closeSearchAccessModal = () => {
+    setShowSearchAccessModal(false);
+    setSearchAccessReason("");
+    setSearchAccessError("");
+  };
+
+  const handleRequestSearchAccess = async () => {
+    setSearchAccessError("");
+    setSearchAccessRequesting(true);
+    try {
+      const body = { type: tab, reason: searchAccessReason.trim() || null };
+      if (tab === "Individual") {
+        body.firstName = firstName.trim();
+        body.middleName = middleName.trim();
+        body.lastName = lastName.trim();
+      } else {
+        body.term = term.trim();
+      }
+      await api.post("/records/request-search-access", body);
+      setSearchAccessPending(true);
+      setShowSearchAccessModal(false);
+      showToast("Access request submitted. The admin and locking affiliate have been notified.", "success");
+    } catch (err) {
+      setSearchAccessError(err.response?.data?.message || "Failed to submit request");
+    } finally {
+      setSearchAccessRequesting(false);
     }
   };
 
@@ -426,6 +539,13 @@ export default function NegativeRecordSearch() {
               setFirstName("");
               setMiddleName("");
               setLastName("");
+              setNoRecordsFound(false);
+              setSearchMeta(null);
+              setIsSearchLocked(false);
+              setSearchLockInfo(null);
+              setHasSearched(false);
+              setSearchAccessPending(false);
+              setSearchAccessError("");
             }}
             className={`px-4 py-2 rounded text-sm font-medium ${
               tab === t
@@ -502,7 +622,10 @@ export default function NegativeRecordSearch() {
               <tr>
                 <th className="px-4 py-3 text-left">ID</th>
                 <th className="px-4 py-3 text-left">Type</th>
-                <th className="px-4 py-3 text-left">Name / Company</th>
+                <th className="px-4 py-3 text-left">Last Name</th>
+                <th className="px-4 py-3 text-left">First Name</th>
+                <th className="px-4 py-3 text-left">Middle Name</th>
+                <th className="px-4 py-3 text-left">Company</th>
                 <th className="px-4 py-3 text-left">Case No.</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-left">Actions</th>
@@ -513,7 +636,10 @@ export default function NegativeRecordSearch() {
                 <tr key={r.id} className="border-t border-card-border">
                   <td className="px-4 py-3">{r.id}</td>
                   <td className="px-4 py-3">{r.type}</td>
-                  <td className="px-4 py-3">{getRecordName(r)}</td>
+                  <td className="px-4 py-3">{r.lastName || "—"}</td>
+                  <td className="px-4 py-3">{r.firstName || "—"}</td>
+                  <td className="px-4 py-3">{r.middleName || "—"}</td>
+                  <td className="px-4 py-3">{r.companyName || "—"}</td>
                   <td className="px-4 py-3">{r.caseNo}</td>
                   <td className="px-4 py-3">
                     {r.isLocked ? (
@@ -575,7 +701,87 @@ export default function NegativeRecordSearch() {
         </div>
       )}
 
-      {results.length === 0 && !loading && error === "" && (
+      {/* Print Report button for search results */}
+      {results.length > 0 && (
+        <div className="mt-4 flex justify-end">
+          <button
+            onClick={requestSearchReportPrint}
+            disabled={printLoading}
+            className="bg-btn-primary text-btn-primary-text px-6 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
+          >
+            {printLoading ? "Preparing..." : "Print Full Report"}
+          </button>
+        </div>
+      )}
+
+      {/* No records found — AFFIS lock indicator */}
+      {noRecordsFound && !loading && (
+        <div className="bg-card-bg border border-card-border rounded-lg p-6 text-center">
+          {isSearchLocked ? (
+            <>
+              <div className="flex justify-center mb-3">
+                <div className="bg-warning/10 rounded-full p-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-warning" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                  </svg>
+                </div>
+              </div>
+              <div className="text-warning font-bold text-lg mb-2">Search Locked</div>
+              <p className="text-sidebar-text text-sm mb-1">
+                This name has already been searched and locked by another affiliate.
+              </p>
+              <p className="text-sidebar-text text-sm mb-4">
+                <span className="font-medium">Locked by:</span> {searchLockInfo?.lockedByName} &mdash; {searchLockInfo?.lockedByAffiliate}
+              </p>
+              {searchAccessError && (
+                <div className="bg-error/10 text-error text-sm rounded p-3 mb-3 text-left">{searchAccessError}</div>
+              )}
+              {searchAccessPending ? (
+                <span className="inline-flex items-center gap-2 text-xs font-medium px-4 py-2 rounded bg-warning/10 text-warning border border-warning/20">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+                  </svg>
+                  Request Pending
+                </span>
+              ) : (
+                <button
+                  onClick={openSearchAccessModal}
+                  disabled={searchAccessRequesting}
+                  className="bg-btn-primary text-btn-primary-text px-6 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
+                >
+                  {searchAccessRequesting ? "Submitting..." : "Request Access"}
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="flex justify-center mb-3">
+                <div className="bg-primary-header/10 rounded-full p-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-primary-header" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </div>
+              </div>
+              <div className="text-primary-header font-bold text-lg mb-2">No Records Found</div>
+              <p className="text-sidebar-text text-sm mb-1">
+                No existing records found in the database for &ldquo;{searchMeta?.name}&rdquo;.
+              </p>
+              <p className="text-sidebar-text text-sm mb-4">
+                This search has been automatically locked to your affiliate (AFFIS).
+              </p>
+              <button
+                onClick={requestSearchReportPrint}
+                disabled={printLoading}
+                className="bg-btn-primary text-btn-primary-text px-6 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
+              >
+                {printLoading ? "Preparing..." : "Print Report"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {!hasSearched && results.length === 0 && !loading && error === "" && !noRecordsFound && (
         <p className="text-center text-sidebar-text text-sm mt-4">
           Enter a name or company to search.
         </p>
@@ -658,6 +864,51 @@ export default function NegativeRecordSearch() {
                 className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90"
               >
                 Yes, Print
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Search Access Request Modal */}
+      {showSearchAccessModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-page-bg rounded-lg shadow-lg w-full max-w-md p-6">
+            <h3 className="text-lg font-bold text-primary-header mb-4">Request Search Access</h3>
+            <div className="bg-card-bg border border-card-border rounded p-3 mb-4 text-sm space-y-1">
+              <p><span className="font-medium">Search Name:</span> {searchMeta?.name || "—"}</p>
+              <p><span className="font-medium">Locked By:</span> {searchLockInfo?.lockedByName} — {searchLockInfo?.lockedByAffiliate}</p>
+            </div>
+            {searchAccessError && (
+              <div className="bg-error/10 text-error text-sm rounded p-3 mb-3">{searchAccessError}</div>
+            )}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-sidebar-text mb-1">
+                Reason for Access
+              </label>
+              <textarea
+                value={searchAccessReason}
+                onChange={(e) => setSearchAccessReason(e.target.value)}
+                rows="3"
+                placeholder="Please provide a reason for your request..."
+                className="w-full border border-card-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-header"
+                required
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={closeSearchAccessModal}
+                className="px-4 py-2 rounded text-sm font-medium bg-card-bg text-sidebar-text border border-card-border hover:opacity-90"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRequestSearchAccess}
+                disabled={searchAccessRequesting || !searchAccessReason.trim()}
+                className="bg-btn-primary text-btn-primary-text px-4 py-2 rounded text-sm font-medium hover:opacity-90 disabled:opacity-50"
+              >
+                {searchAccessRequesting ? "Submitting..." : "Submit Request"}
               </button>
             </div>
           </div>
