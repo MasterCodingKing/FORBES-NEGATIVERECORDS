@@ -43,6 +43,12 @@ async function clearAllData() {
     console.log('Deleting credit_transactions...');
     await prisma.creditTransaction.deleteMany({});
     
+    console.log('Deleting search_locks...');
+    await prisma.searchLock.deleteMany({});
+    
+    console.log('Deleting search_access_requests...');
+    await prisma.searchAccessRequest.deleteMany({});
+    
     console.log('Deleting sub_domains...');
     await prisma.subDomain.deleteMany({});
     

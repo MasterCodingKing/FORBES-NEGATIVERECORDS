@@ -163,7 +163,7 @@ export default function AdminDashboard() {
     );
   }
 
-  const { summary, dailySearchChart, topClients } = data;
+  const { summary, dailySearchChart, monthlySearchChart = [], yearlySearchChart = [], topClients } = data;
 
   // Format date labels for chart (e.g. "Feb 26")
   const formattedChartData = dailySearchChart.map((d) => ({
@@ -172,6 +172,16 @@ export default function AdminDashboard() {
       month: "short",
       day: "numeric",
     }),
+  }));
+
+  const formattedMonthlyData = monthlySearchChart.map((d) => ({
+    ...d,
+    count: Number(d.count),
+  }));
+
+  const formattedYearlyData = yearlySearchChart.map((d) => ({
+    ...d,
+    count: Number(d.count),
   }));
 
   return (
@@ -286,6 +296,82 @@ export default function AdminDashboard() {
                 activeDot={{ r: 5, fill: "var(--color-sidebar-active)" }}
               />
             </LineChart>
+          </ResponsiveContainer>
+        )}
+      </section>
+
+      {/* ── Monthly Searches Bar Chart ── */}
+      <section className="bg-card-bg border border-card-border rounded-xl p-6 shadow-sm">
+        <h3 className="text-lg font-semibold text-primary-header mb-1">
+          Monthly Searches
+        </h3>
+        <p className="text-xs text-sidebar-text mb-5">Last 12 months</p>
+
+        {formattedMonthlyData.length === 0 ? (
+          <div className="flex items-center justify-center h-56 text-sidebar-text text-sm">
+            No monthly search data available.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={320}>
+            <BarChart
+              data={formattedMonthlyData}
+              margin={{ top: 5, right: 20, bottom: 5, left: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-card-border)" />
+              <XAxis
+                dataKey="month"
+                tick={{ fontSize: 11, fill: "var(--color-sidebar-text)" }}
+                tickLine={false}
+                axisLine={{ stroke: "var(--color-card-border)" }}
+              />
+              <YAxis
+                allowDecimals={false}
+                tick={{ fontSize: 11, fill: "var(--color-sidebar-text)" }}
+                tickLine={false}
+                axisLine={{ stroke: "var(--color-card-border)" }}
+                label={{ value: "Searches", angle: -90, position: "insideLeft", style: { fontSize: 12, fill: "var(--color-sidebar-text)" } }}
+              />
+              <Tooltip content={<SearchTooltip />} />
+              <Bar dataKey="count" radius={[6, 6, 0, 0]} fill="var(--color-btn-primary)" />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </section>
+
+      {/* ── Yearly Searches Bar Chart ── */}
+      <section className="bg-card-bg border border-card-border rounded-xl p-6 shadow-sm">
+        <h3 className="text-lg font-semibold text-primary-header mb-1">
+          Yearly Searches
+        </h3>
+        <p className="text-xs text-sidebar-text mb-5">All-time by year</p>
+
+        {formattedYearlyData.length === 0 ? (
+          <div className="flex items-center justify-center h-56 text-sidebar-text text-sm">
+            No yearly search data available.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart
+              data={formattedYearlyData}
+              margin={{ top: 5, right: 20, bottom: 5, left: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--color-card-border)" />
+              <XAxis
+                dataKey="year"
+                tick={{ fontSize: 11, fill: "var(--color-sidebar-text)" }}
+                tickLine={false}
+                axisLine={{ stroke: "var(--color-card-border)" }}
+              />
+              <YAxis
+                allowDecimals={false}
+                tick={{ fontSize: 11, fill: "var(--color-sidebar-text)" }}
+                tickLine={false}
+                axisLine={{ stroke: "var(--color-card-border)" }}
+                label={{ value: "Searches", angle: -90, position: "insideLeft", style: { fontSize: 12, fill: "var(--color-sidebar-text)" } }}
+              />
+              <Tooltip content={<SearchTooltip />} />
+              <Bar dataKey="count" radius={[6, 6, 0, 0]} fill="#1E40AF" />
+            </BarChart>
           </ResponsiveContainer>
         )}
       </section>

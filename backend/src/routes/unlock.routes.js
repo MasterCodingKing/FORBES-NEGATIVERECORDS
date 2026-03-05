@@ -13,6 +13,10 @@ router.get("/owned", auth, controller.listOwnedRequests);
 // Admin: view all requests, approve/deny
 router.get("/all", auth, requireAdmin, controller.listAllRequests);
 
+// Admin: search access requests (non-existent name locks)
+router.get("/search-access", auth, requireAdmin, controller.listSearchAccessRequests);
+router.patch("/search-access/:id/review", auth, requireAdmin, controller.reviewSearchAccessRequest);
+
 // Review: admin OR lock owner (authorization checked inside controller)
 router.patch("/:id/review", auth, controller.reviewRequest);
 

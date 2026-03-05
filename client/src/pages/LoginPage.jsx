@@ -50,7 +50,7 @@ export default function LoginPage() {
       </button>
       <div className="bg-card-bg border border-card-border rounded-lg p-8 w-full max-w-md shadow-sm">
         <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-primary-header">NEGRECT</h1>
+          <h1 className="text-2xl font-bold text-primary-header">NEGREC</h1>
           <p className="text-sidebar-text text-sm mt-1">Negative Records Management System</p>
         </div>
         {error && (

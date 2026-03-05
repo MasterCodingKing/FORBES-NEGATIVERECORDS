@@ -129,6 +129,19 @@ export default function ProfileAccess() {
     }
   };
 
+  const handleToggleActive = async (user) => {
+    const newStatus = user.isActive === 1 ? 0 : 1;
+    const label = newStatus === 1 ? "activate" : "deactivate";
+    if (!window.confirm(`Are you sure you want to ${label} this user?`)) return;
+    try {
+      await api.put(`/users/${user.id}`, { isActive: newStatus });
+      setRefreshKey((k) => k + 1);
+      setSuccess(`User ${label}d successfully`);
+    } catch (err) {
+      setError(err.response?.data?.message || `Failed to ${label}`);
+    }
+  };
+
   const allColumns = [
     { key: "firstName", label: "First Name" },
     { key: "lastName", label: "Last Name" },
@@ -141,9 +154,30 @@ export default function ProfileAccess() {
       key: "status",
       label: "Status",
       render: (r) => (
-        <span className={`text-xs font-medium px-2 py-1 rounded ${r.isApproved ? "bg-success/10 text-success" : "bg-warning/10 text-warning"}`}>
-          {r.isApproved ? "Approved" : "Pending"}
-        </span>
+        <div className="flex flex-col gap-1">
+          <span className={`text-xs font-medium px-2 py-1 rounded ${r.isApproved ? "bg-success/10 text-success" : "bg-warning/10 text-warning"}`}>
+            {r.isApproved ? "Approved" : "Pending"}
+          </span>
+          {r.isApproved === 1 && (
+            <span className={`text-xs font-medium px-2 py-1 rounded ${r.isActive === 1 ? "bg-success/10 text-success" : "bg-error/10 text-error"}`}>
+              {r.isActive === 1 ? "Active" : "Inactive"}
+            </span>
+          )}
+        </div>
+      )
+    },
+    {
+      key: "active",
+      label: "Active",
+      sortable: false,
+      render: (r) => (
+        <button
+          onClick={(e) => { e.stopPropagation(); handleToggleActive(r); }}
+          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${r.isActive === 1 ? "bg-success" : "bg-card-border"}`}
+          title={r.isActive === 1 ? "Click to deactivate" : "Click to activate"}
+        >
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${r.isActive === 1 ? "translate-x-6" : "translate-x-1"}`} />
+        </button>
       )
     },
     {

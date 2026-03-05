@@ -19,6 +19,8 @@ import AdminUnlocking from "./pages/admin/AdminUnlocking";
 import ManageNews from "./pages/admin/ManageNews";
 import CreditManagement from "./pages/admin/CreditManagement";
 import AdminRecords from "./pages/admin/AdminRecords";
+import AdminAuditTrail from "./pages/admin/AdminAuditTrail";
+import AdminBilling from "./pages/admin/AdminBilling";
 
 // Affiliate pages
 import NegativeRecordSearch from "./pages/affiliate/NegativeRecordSearch";
@@ -67,6 +69,8 @@ export default function App() {
             <Route path="news" element={<ManageNews />} />
             <Route path="credits" element={<CreditManagement />} />
             <Route path="records" element={<AdminRecords />} />
+            <Route path="audit-trail" element={<AdminAuditTrail />} />
+            <Route path="billing" element={<AdminBilling />} />
           </Route>
 
           {/* Affiliate routes */}

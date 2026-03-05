@@ -250,16 +250,24 @@ const search = async (req, res) => {
     }
 
     const userId = req.user.id;
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { branch: true },
+    });
     if (!user || !user.clientId) {
       return res.status(403).json({ message: "No client assigned" });
+    }
+
+    // Check if branch is inactive
+    if (user.branchId && user.branch && user.branch.status === "Inactive") {
+      return res.status(403).json({ message: "Branch is inactive. Please contact the administrator." });
     }
 
     const client = await prisma.client.findFirst({
       where: { id: user.clientId, isActive: 1 },
     });
     if (!client) {
-      return res.status(403).json({ message: "Client not found" });
+      return res.status(403).json({ message: "Client is inactive. Please contact the administrator." });
     }
 
     // Build search term string for duplicate detection
@@ -271,8 +279,9 @@ const search = async (req, res) => {
         : term.trim().toLowerCase();
 
     // Build search query
-    const searchWhere = { type };
+    const searchWhere = {};
     if (type === "Individual") {
+      searchWhere.type = type;
       const andConditions = [];
       if (firstName) {
         andConditions.push({ firstName: { contains: firstName.trim(), mode: "insensitive" } });
@@ -285,7 +294,7 @@ const search = async (req, res) => {
       }
       searchWhere.AND = andConditions;
     } else {
-      searchWhere.companyName = { contains: term, mode: "insensitive" };
+      searchWhere.companyName = { contains: term.trim(), mode: "insensitive" };
     }
 
     const results = await prisma.negativeRecord.findMany({
@@ -398,8 +407,6 @@ const search = async (req, res) => {
     }
 
     // Search is always free — credits are only deducted on print
-    const billed = false;
-
     await prisma.searchLog.create({
       data: {
         userId,
@@ -410,6 +417,100 @@ const search = async (req, res) => {
         fee: 0,
       },
     });
+
+    // Handle no-results case — auto-lock to AFFIS via SearchLock table
+    if (processedResults.length === 0) {
+      const searchName = type === 'Individual'
+        ? [firstName, middleName, lastName].filter(Boolean).map(s => s.trim()).join(' ')
+        : (term || '').trim();
+
+      // Check if a SearchLock already exists for this term
+      const existingLock = await prisma.searchLock.findUnique({
+        where: { searchTerm: searchTermStr },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              client: { select: { id: true, name: true } },
+            },
+          },
+        },
+      });
+
+      if (existingLock && existingLock.clientId !== user.clientId) {
+        // Locked by another affiliate — check if current user has an approved access request
+        const approvedAccess = await prisma.searchAccessRequest.findFirst({
+          where: {
+            searchLockId: existingLock.id,
+            requestedBy: userId,
+            status: 'approved',
+          },
+        });
+
+        if (approvedAccess) {
+          // Access granted — treat as owner
+          return res.json({
+            results: [],
+            noRecordsFound: true,
+            isOwner: true,
+            isLocked: false,
+            searchMeta: { name: searchName, type },
+            billed: false,
+            remainingCredit: client.creditBalance,
+          });
+        }
+
+        // Check for pending request
+        const pendingRequest = await prisma.searchAccessRequest.findFirst({
+          where: {
+            searchLockId: existingLock.id,
+            requestedBy: userId,
+            status: 'pending',
+          },
+        });
+
+        const lockerName = [existingLock.user?.firstName, existingLock.user?.lastName]
+          .filter(Boolean).join(' ') || 'Unknown';
+        return res.json({
+          results: [],
+          noRecordsFound: true,
+          isLocked: true,
+          isOwner: false,
+          hasPendingRequest: !!pendingRequest,
+          lockedByAffiliate: existingLock.user?.client?.name || 'Unknown',
+          lockedByName: lockerName,
+          searchLockId: existingLock.id,
+          searchMeta: { name: searchName, type },
+          billed: false,
+          remainingCredit: client.creditBalance,
+        });
+      }
+
+      if (!existingLock) {
+        // No lock exists — create one for the current affiliate
+        await prisma.searchLock.create({
+          data: {
+            searchTerm: searchTermStr,
+            searchType: type,
+            lockedBy: userId,
+            clientId: user.clientId,
+          },
+        });
+        await logAudit(req, 'SEARCH_LOCK_CREATE', 'search_locks', 0);
+      }
+
+      return res.json({
+        results: [],
+        noRecordsFound: true,
+        isOwner: true,
+        isLocked: false,
+        searchMeta: { name: searchName, type },
+        billed: false,
+        remainingCredit: client.creditBalance,
+      });
+    }
 
     return res.json({
       results: processedResults,
@@ -552,6 +653,144 @@ const getLockInfo = async (req, res) => {
   }
 };
 
+// --- PDF Report Generator (matches official FFCC format) ---
+
+/**
+ * Generate a "NEGATIVE RECORDS DETAIL REPORT" PDF matching the official FFCC format.
+ * @param {Object} doc - PDFKit document instance
+ * @param {Object} meta - { name, inquiryDate, inquiryBy, client, branch, referenceNo }
+ * @param {Array} records - Array of record objects (can be empty for no-results reports)
+ */
+function generateReportPDF(doc, meta, records) {
+  const margin = 40;
+  const pageWidth = doc.page.width;
+  const contentWidth = pageWidth - 2 * margin;
+
+  const NAVY = '#1B2A4A';
+  const DARK_RED = '#8B1A1A';
+  const RED = '#E53935';
+  const GOLD = '#FFD700';
+  const WHITE = '#FFFFFF';
+  const LIGHT_BG = '#F5F5F5';
+  const BORDER = '#CCCCCC';
+  const DARK = '#333333';
+  const GRAY = '#999999';
+
+  // ===== TITLE =====
+  doc.fontSize(16).fillColor(NAVY).font('Helvetica-Bold')
+    .text('NEGATIVE RECORDS DETAIL REPORT', margin, 35, {
+      align: 'center', width: contentWidth,
+    });
+
+  let y = 65;
+
+  // ===== HEADER INFO TABLE =====
+  const hRowH = 22;
+  const hColWidths = [0.12, 0.21, 0.12, 0.25, 0.12, 0.18];
+  const hLabels = ['Name', 'Inquiry Date', 'Inquiry By', 'Client', 'Branch', 'Reference No'];
+  const hKeys = ['name', 'inquiryDate', 'inquiryBy', 'client', 'branch', 'referenceNo'];
+
+  // Header row (navy bg, gold text)
+  doc.rect(margin, y, contentWidth, hRowH).fill(NAVY);
+  let x = margin;
+  for (let i = 0; i < hLabels.length; i++) {
+    const w = hColWidths[i] * contentWidth;
+    doc.fillColor(GOLD).fontSize(7).font('Helvetica-Bold')
+      .text(hLabels[i], x + 3, y + 7, { width: w - 6, lineBreak: false });
+    x += w;
+  }
+  y += hRowH;
+
+  // Data row (light bg, dark text)
+  doc.rect(margin, y, contentWidth, hRowH).fill(LIGHT_BG);
+  doc.rect(margin, y, contentWidth, hRowH).stroke(BORDER);
+  x = margin;
+  for (let i = 0; i < hKeys.length; i++) {
+    const w = hColWidths[i] * contentWidth;
+    doc.fillColor(DARK).fontSize(7).font('Helvetica')
+      .text(meta[hKeys[i]] || '', x + 3, y + 7, { width: w - 6, lineBreak: false });
+    x += w;
+  }
+  y += hRowH + 15;
+
+  // ===== COURT CASE TABLE =====
+  const ccRowH = 22;
+  const ccColWidths = [0.13, 0.13, 0.18, 0.14, 0.13, 0.15, 0.14];
+  const ccLabels = ['Case No.', 'Case Type', 'Plaintiff', 'Date Filed', 'City', 'Court', 'Branch'];
+  const ccKeys = ['caseNo', 'caseType', 'plaintiff', 'dateFiled', 'city', 'courtType', 'branch'];
+
+  // Header row (dark red bg, white text)
+  doc.rect(margin, y, contentWidth, ccRowH).fill(DARK_RED);
+  x = margin;
+  for (let i = 0; i < ccLabels.length; i++) {
+    const w = ccColWidths[i] * contentWidth;
+    doc.fillColor(WHITE).fontSize(7).font('Helvetica-Bold')
+      .text(ccLabels[i], x + 3, y + 7, { width: w - 6, lineBreak: false });
+    x += w;
+  }
+  y += ccRowH;
+
+  // Court case data rows
+  const courtCaseRecords = records.filter(r => r.caseNo || r.caseType);
+  if (courtCaseRecords.length === 0) {
+    doc.rect(margin, y, contentWidth, ccRowH).fill(LIGHT_BG);
+    doc.rect(margin, y, contentWidth, ccRowH).stroke(BORDER);
+    doc.fillColor(GRAY).fontSize(7).font('Helvetica')
+      .text('CourtCase Not Found', margin, y + 7, { align: 'center', width: contentWidth });
+    y += ccRowH;
+  } else {
+    for (const rec of courtCaseRecords) {
+      doc.rect(margin, y, contentWidth, ccRowH).stroke(BORDER);
+      x = margin;
+      for (let i = 0; i < ccKeys.length; i++) {
+        const w = ccColWidths[i] * contentWidth;
+        let val = rec[ccKeys[i]] || '';
+        if (ccKeys[i] === 'dateFiled' && rec.dateFiled) {
+          val = new Date(rec.dateFiled).toLocaleDateString();
+        }
+        doc.fillColor(DARK).fontSize(7).font('Helvetica')
+          .text(String(val), x + 3, y + 7, { width: w - 6, lineBreak: false });
+        x += w;
+      }
+      y += ccRowH;
+    }
+  }
+  y += 15;
+
+  // ===== CATEGORY COUNTS =====
+  const categories = [
+    { label: 'Court Case', count: courtCaseRecords.length, showNoRecords: false },
+    { label: 'Bounce Check', count: records.filter(r => r.bounce).length, showNoRecords: true },
+    { label: 'Watch List', count: records.filter(r => r.watch).length, showNoRecords: true },
+    { label: 'Telecoms', count: records.filter(r => r.telecom).length, showNoRecords: true },
+    { label: 'Declined', count: records.filter(r => r.decline).length, showNoRecords: true },
+    { label: 'Delinquent', count: records.filter(r => r.delinquent).length, showNoRecords: true },
+  ];
+
+  for (const cat of categories) {
+    doc.fillColor(NAVY).fontSize(10).font('Helvetica')
+      .text(`${cat.label}:  `, margin, y, { continued: true });
+    doc.fillColor(RED).font('Helvetica-Bold').text(String(cat.count));
+    y = doc.y;
+    if (cat.showNoRecords && cat.count === 0) {
+      doc.fillColor(RED).fontSize(9).font('Helvetica').text('No Records Found', margin, y);
+      y = doc.y;
+    }
+    y += 6;
+  }
+
+  // ===== DISCLAIMER =====
+  y += 15;
+  doc.fillColor(DARK).fontSize(10).font('Helvetica-Bold').text('Disclamer', margin, y);
+  y = doc.y + 5;
+  doc.fillColor(DARK).fontSize(7).font('Helvetica')
+    .text(
+      'This report, to be treated in strictest confidence, upon request and in accordance with the subscription agreement entered into by and between Forbes Financial Consultancy Corporation (FFCC) and the user, the terms of which agreement are hereby incorporated by reference, for exclusive use as one factor to be considered in connection with credit, insurance, marketing, and other business decisions, and for no other purpose. It may contain information from sources which FFCC does not control and which information, unless otherwise indicated, may not have been verified. It shall not be used as evidence in any legal proceeding nor shall it be shown to subject or others, and neither shall its source be disclosed. FFCC has acted with due diligence and in utmost good faith and does not guarantee the accuracy, completeness, and timeliness of this report or does it assume any part of the user\'s risk in its use or non-use. FFCC shall not and cannot be held liable for any loss, injury or damage caused or may hereafter be caused, directly or indirectly, by the use of the report or arising from the acts on the part of FFCC, its officers, agents, and personnel relative to the procurement, collection, and/or communication of any information relative thereto. Any point of clarification may be promptly raised solely and exclusively with FFCC.',
+      margin, y,
+      { align: 'justify', width: contentWidth }
+    );
+}
+
 // --- Affiliate: Print record (credits deducted here) — generates PDF ---
 
 const printRecord = async (req, res) => {
@@ -643,73 +882,292 @@ const printRecord = async (req, res) => {
       });
     }
 
-    // Generate server-side PDF
+    // Generate server-side PDF in official FFCC report format
     const PDFDocument = require("pdfkit");
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="record-${id}.pdf"`);
 
-    const doc = new PDFDocument({ margin: 50, size: "A4" });
+    const doc = new PDFDocument({ margin: 40, size: "A4" });
     doc.pipe(res);
 
-    // Header
-    doc.fontSize(18).font("Helvetica-Bold").text("Negative Record Report", { align: "center" });
-    doc.moveDown(0.5);
-    doc.fontSize(9).font("Helvetica").text(`Reference No: ${refNo}`, { align: "center" });
-    doc.text(`Inquiry Date: ${now.toLocaleString()}`, { align: "center" });
-    doc.text(`Inquiry By: ${inquiryBy} — ${updatedClient.name} / ${branchName}`, { align: "center" });
-    doc.moveDown(1);
+    const recordName = record.type === 'Individual'
+      ? [record.firstName, record.middleName, record.lastName].filter(Boolean).join(' ')
+      : record.companyName || '';
 
-    // Divider
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-    doc.moveDown(0.5);
+    generateReportPDF(doc, {
+      name: recordName,
+      inquiryDate: now.toLocaleString(),
+      inquiryBy,
+      client: updatedClient.name,
+      branch: branchName,
+      referenceNo: refNo,
+    }, [record]);
 
-    // Record Details
-    doc.fontSize(12).font("Helvetica-Bold").text("Record Details");
-    doc.moveDown(0.3);
-    doc.fontSize(9).font("Helvetica");
+    doc.end();
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
 
-    const fields = [
-      ["Type", record.type],
-      ["Last Name", record.lastName],
-      ["First Name", record.firstName],
-      ["Middle Name", record.middleName],
-      ["Alias", record.alias],
-      ["Company Name", record.companyName],
-      ["Case No", record.caseNo],
-      ["Plaintiff", record.plaintiff],
-      ["Case Type", record.caseType],
-      ["Court Type", record.courtType],
-      ["Branch", record.branch],
-      ["City", record.city],
-      ["Date Filed", record.dateFiled ? new Date(record.dateFiled).toLocaleDateString() : null],
-      ["Source", record.source],
-      ["Bounce", record.bounce],
-      ["Decline", record.decline],
-      ["Delinquent", record.delinquent],
-      ["Telecom", record.telecom],
-      ["Watch", record.watch],
-    ];
+// --- Affiliate: Print search results report (including no-results) ---
 
-    for (const [label, value] of fields) {
-      if (value) {
-        doc.font("Helvetica-Bold").text(`${label}: `, { continued: true });
-        doc.font("Helvetica").text(String(value));
+const printSearchResults = async (req, res) => {
+  try {
+    const { type, firstName, middleName, lastName, term } = req.body;
+    if (!type) {
+      return res.status(400).json({ message: "type is required" });
+    }
+
+    const userId = req.user.id;
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user || !user.clientId) {
+      return res.status(403).json({ message: "No client assigned" });
+    }
+
+    const client = await prisma.client.findFirst({
+      where: { id: user.clientId, isActive: 1 },
+    });
+    if (!client) {
+      return res.status(403).json({ message: "Client not found" });
+    }
+
+    // Build search query
+    const searchWhere = {};
+    let searchName = '';
+    let searchTermStr = '';
+    if (type === 'Individual') {
+      searchWhere.type = 'Individual';
+      const andConditions = [];
+      if (firstName) andConditions.push({ firstName: { contains: firstName.trim(), mode: 'insensitive' } });
+      if (middleName) andConditions.push({ middleName: { contains: middleName.trim(), mode: 'insensitive' } });
+      if (lastName) andConditions.push({ lastName: { contains: lastName.trim(), mode: 'insensitive' } });
+      if (andConditions.length > 0) searchWhere.AND = andConditions;
+      searchName = [firstName, middleName, lastName].filter(Boolean).map(s => s.trim()).join(' ');
+      searchTermStr = [firstName, middleName, lastName].map(s => (s || '').trim().toLowerCase()).join('|');
+    } else {
+      searchWhere.companyName = { contains: (term || '').trim(), mode: 'insensitive' };
+      searchName = (term || '').trim();
+      searchTermStr = searchName.toLowerCase();
+    }
+
+    // Block print if this search term is locked by a different client via SearchLock
+    const searchLock = await prisma.searchLock.findUnique({
+      where: { searchTerm: searchTermStr },
+    });
+    if (searchLock && searchLock.clientId !== user.clientId) {
+      // Check if the user has an approved access request
+      const approvedAccess = await prisma.searchAccessRequest.findFirst({
+        where: {
+          searchLockId: searchLock.id,
+          requestedBy: userId,
+          status: 'approved',
+        },
+      });
+      if (!approvedAccess) {
+        return res.status(403).json({
+          message: "This search is locked by another affiliate. You must request access before printing.",
+          locked: true,
+        });
       }
     }
 
-    if (record.details) {
-      doc.moveDown(0.5);
-      doc.font("Helvetica-Bold").text("Details:");
-      doc.font("Helvetica").text(record.details);
+    // Find matching records locked by current user
+    const records = await prisma.negativeRecord.findMany({
+      where: searchWhere,
+      include: { recordLock: true },
+      take: 200,
+    });
+
+    const ownedRecords = records.filter(r => !r.recordLock || r.recordLock.lockedBy === userId);
+
+    // Deduct credits
+    const printFee = parseFloat(process.env.PRINT_FEE || process.env.SEARCH_FEE || "1.00");
+    if (client.billingType === "Prepaid") {
+      if (parseFloat(client.creditBalance) < printFee) {
+        return res.status(402).json({
+          message: "Insufficient credit to print. Please request a top-up.",
+        });
+      }
+      await prisma.client.update({
+        where: { id: user.clientId },
+        data: { creditBalance: parseFloat(client.creditBalance) - printFee },
+      });
+      await prisma.creditTransaction.create({
+        data: {
+          clientId: user.clientId,
+          amount: printFee,
+          type: "deduction",
+          description: `Print Search Report: ${searchName}`,
+          performedBy: userId,
+        },
+      });
     }
 
-    // Footer
-    doc.moveDown(2);
-    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke();
-    doc.moveDown(0.3);
-    doc.fontSize(7).text("This report is confidential and intended for authorized personnel only.", { align: "center" });
+    await logAudit(req, "SEARCH_REPORT_PRINT", "negative_records", 0);
+
+    const now = new Date();
+    const refNo = `REF-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getTime()).slice(-6)}`;
+
+    const branchName = user.branchId
+      ? (await prisma.subDomain.findUnique({ where: { id: user.branchId }, select: { name: true } }))?.name || 'All'
+      : 'All';
+    const inquiryBy = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
+    const updatedClient = await prisma.client.findUnique({ where: { id: user.clientId } });
+
+    const PDFDocument = require("pdfkit");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="search-report.pdf"`);
+
+    const doc = new PDFDocument({ margin: 40, size: "A4" });
+    doc.pipe(res);
+
+    generateReportPDF(doc, {
+      name: searchName,
+      inquiryDate: now.toLocaleString(),
+      inquiryBy,
+      client: updatedClient.name,
+      branch: branchName,
+      referenceNo: refNo,
+    }, ownedRecords);
 
     doc.end();
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+// --- Affiliate: Request access to a search-locked (non-existent) name ---
+
+const requestSearchAccess = async (req, res) => {
+  try {
+    const { type, firstName, middleName, lastName, term, reason } = req.body;
+    if (!type) {
+      return res.status(400).json({ message: "type is required" });
+    }
+
+    const userId = req.user.id;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { client: { select: { name: true } } },
+    });
+    if (!user || !user.clientId) {
+      return res.status(403).json({ message: "No client assigned" });
+    }
+
+    // Build the same searchTermStr used in locking
+    let searchTermStr;
+    let searchName;
+    if (type === 'Individual') {
+      searchTermStr = [firstName, middleName, lastName]
+        .map(s => (s || '').trim().toLowerCase())
+        .join('|');
+      searchName = [firstName, middleName, lastName].filter(Boolean).map(s => s.trim()).join(' ');
+    } else {
+      searchTermStr = (term || '').trim().toLowerCase();
+      searchName = (term || '').trim();
+    }
+
+    // Find the SearchLock entry
+    const searchLock = await prisma.searchLock.findUnique({
+      where: { searchTerm: searchTermStr },
+      include: {
+        user: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            client: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    if (!searchLock) {
+      return res.status(400).json({ message: "This search is not locked by another affiliate" });
+    }
+
+    if (searchLock.clientId === user.clientId) {
+      return res.status(400).json({ message: "This search is already locked to your affiliate" });
+    }
+
+    // Check for existing pending request
+    const existingRequest = await prisma.searchAccessRequest.findFirst({
+      where: {
+        searchLockId: searchLock.id,
+        requestedBy: userId,
+        status: 'pending',
+      },
+    });
+    if (existingRequest) {
+      return res.status(409).json({ message: "You already have a pending access request for this search" });
+    }
+
+    // Create the access request
+    const accessRequest = await prisma.searchAccessRequest.create({
+      data: {
+        searchLockId: searchLock.id,
+        requestedBy: userId,
+        reason: reason || null,
+      },
+    });
+
+    const requesterName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
+    const requesterAffiliate = user.client?.name || 'Unknown';
+    const lockerName = [searchLock.user?.firstName, searchLock.user?.lastName].filter(Boolean).join(' ') || 'Unknown';
+    const lockerAffiliate = searchLock.user?.client?.name || 'Unknown';
+
+    // Notify all admins
+    const adminRoles = await prisma.role.findMany({
+      where: { name: { in: ['Admin', 'Super Admin'] } },
+      select: { id: true },
+    });
+    const adminRoleIds = adminRoles.map(r => r.id);
+
+    const admins = await prisma.user.findMany({
+      where: { roleId: { in: adminRoleIds }, isApproved: 1 },
+      select: { id: true },
+    });
+
+    if (admins.length > 0) {
+      await prisma.notification.createMany({
+        data: admins.map(admin => ({
+          userId: admin.id,
+          type: 'SEARCH_ACCESS_REQUEST',
+          title: 'Search Access Request',
+          message: `${requesterName} (${requesterAffiliate}) is requesting access to search "${searchName}" currently locked by ${lockerName} (${lockerAffiliate}).`,
+          isRead: 0,
+          relatedId: accessRequest.id,
+        })),
+      });
+    }
+
+    // Also notify the locking affiliate user
+    await prisma.notification.create({
+      data: {
+        userId: searchLock.lockedBy,
+        type: 'SEARCH_ACCESS_REQUEST',
+        title: 'Search Access Request',
+        message: `${requesterName} (${requesterAffiliate}) is requesting access to the search "${searchName}" which is locked to your affiliate.${reason ? ` Reason: "${reason}"` : ''}`,
+        isRead: 0,
+        relatedId: accessRequest.id,
+      },
+    });
+
+    // Notify the requester (confirmation)
+    await prisma.notification.create({
+      data: {
+        userId,
+        type: 'SEARCH_ACCESS_REQUEST',
+        title: 'Access Request Submitted',
+        message: `Your access request for search "${searchName}" has been submitted. Admin and the locking affiliate have been notified.`,
+        isRead: 0,
+        relatedId: accessRequest.id,
+      },
+    });
+
+    await logAudit(req, 'SEARCH_ACCESS_REQUEST', 'search_access_requests', accessRequest.id);
+
+    return res.json({ message: 'Access request submitted. Admin and the locking affiliate have been notified.' });
   } catch (err) {
     return res.status(500).json({ message: err.message });
   }
@@ -1294,6 +1752,8 @@ module.exports = {
   search,
   getLockInfo,
   printRecord,
+  printSearchResults,
+  requestSearchAccess,
   getRecordDetails,
   getOcrBatchStatus,
   getExtractionChunk,

@@ -433,4 +433,154 @@ const getRequest = async (req, res) => {
   }
 };
 
-module.exports = { createRequest, listMyRequests, listAllRequests, reviewRequest, listOwnedRequests, getRequest };
+// --- Search Access Requests (for non-existent/locked search terms) ---
+
+/**
+ * GET /unlock-requests/search-access
+ * Admin-only: List all search access requests with full info.
+ */
+const listSearchAccessRequests = async (req, res) => {
+  try {
+    const { page, limit, skip, orderBy } = parsePaginationParams(req.query, {
+      defaultSort: "createdAt",
+      defaultOrder: "desc",
+      sortableFields: ["createdAt", "status"],
+    });
+
+    const where = {};
+    if (req.query.status) {
+      where.status = req.query.status;
+    }
+
+    const [data, total] = await Promise.all([
+      prisma.searchAccessRequest.findMany({
+        where,
+        include: {
+          searchLock: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  email: true,
+                  client: { select: { id: true, name: true } },
+                },
+              },
+            },
+          },
+          requester: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              telephone: true,
+              mobileNumber: true,
+              position: true,
+              client: { select: { id: true, name: true } },
+              branch: { select: { id: true, name: true } },
+            },
+          },
+        },
+        skip,
+        take: limit,
+        orderBy,
+      }),
+      prisma.searchAccessRequest.count({ where }),
+    ]);
+
+    return res.json(paginatedResponse(data, total, page, limit));
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * PATCH /unlock-requests/search-access/:id/review
+ * Admin-only: Approve or deny a search access request.
+ */
+const reviewSearchAccessRequest = async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const request = await prisma.searchAccessRequest.findUnique({
+      where: { id },
+      include: {
+        searchLock: {
+          include: {
+            user: {
+              select: { id: true, firstName: true, lastName: true, client: { select: { name: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    if (!request) {
+      return res.status(404).json({ message: "Request not found" });
+    }
+    if (request.status !== "pending") {
+      return res.status(400).json({ message: "Request already reviewed" });
+    }
+
+    const { status, denialReason } = req.body;
+    if (!["approved", "denied"].includes(status)) {
+      return res.status(400).json({ message: "Invalid status" });
+    }
+    if (status === "denied" && !denialReason?.trim()) {
+      return res.status(400).json({ message: "denialReason is required when denying a request" });
+    }
+
+    const updated = await prisma.searchAccessRequest.update({
+      where: { id },
+      data: {
+        status,
+        reviewedBy: req.user.id,
+        reviewedAt: new Date(),
+      },
+    });
+
+    const reviewer = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    const reviewerName = [reviewer.firstName, reviewer.lastName].filter(Boolean).join(" ") || reviewer.email;
+
+    const searchTerm = request.searchLock.searchTerm;
+    const lockerName = [request.searchLock.user?.firstName, request.searchLock.user?.lastName]
+      .filter(Boolean).join(" ") || "Unknown";
+    const lockerAffiliate = request.searchLock.user?.client?.name || "Unknown";
+
+    if (status === "approved") {
+      await prisma.notification.create({
+        data: {
+          userId: request.requestedBy,
+          type: "SEARCH_ACCESS_APPROVED",
+          title: "Search Access Approved",
+          message: `Your access request for search "${searchTerm}" (locked by ${lockerName} - ${lockerAffiliate}) has been approved by ${reviewerName}. You can now print this search report.`,
+          isRead: 0,
+          relatedId: id,
+        },
+      });
+    } else {
+      await prisma.notification.create({
+        data: {
+          userId: request.requestedBy,
+          type: "SEARCH_ACCESS_DENIED",
+          title: "Search Access Denied",
+          message: `Your access request for search "${searchTerm}" has been denied by ${reviewerName}. Reason: "${denialReason}".`,
+          isRead: 0,
+          relatedId: id,
+        },
+      });
+    }
+
+    await logAudit(req, `SEARCH_ACCESS_${status.toUpperCase()}`, "search_access_requests", id);
+
+    return res.json(updated);
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+module.exports = { createRequest, listMyRequests, listAllRequests, reviewRequest, listOwnedRequests, getRequest, listSearchAccessRequests, reviewSearchAccessRequest };

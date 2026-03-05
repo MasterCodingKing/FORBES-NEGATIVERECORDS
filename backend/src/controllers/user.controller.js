@@ -117,6 +117,7 @@ const create = async (req, res) => {
         clientId: clientIdInt,
         branchId: branchIdInt,
         isApproved: 1,
+        isActive: 1,
         firstName: firstName || null,
         middleName: middleName || null,
         lastName: lastName || null,
@@ -177,14 +178,14 @@ const updateUser = async (req, res) => {
     }
 
     const allowedFields = [
-      "username", "email", "roleId", "clientId", "branchId", "isApproved",
+      "username", "email", "roleId", "clientId", "branchId", "isApproved", "isActive",
       "firstName", "middleName", "lastName",
       "telephone", "mobileNumber", "faxNumber",
       "primaryEmail", "alternateEmail1", "alternateEmail2",
       "areaHeadManager", "areaHeadManagerContact", "position", "department",
     ];
 
-    const numericFields = ["roleId", "clientId", "branchId", "isApproved"];
+    const numericFields = ["roleId", "clientId", "branchId", "isApproved", "isActive"];
 
     const updateData = {};
     for (const field of allowedFields) {

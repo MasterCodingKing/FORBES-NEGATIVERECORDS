@@ -26,6 +26,7 @@ model User {
   clientId               Int?
   branchId               Int?
   isApproved             Int      @default(0) @db.SmallInt
+  isActive               Int      @default(1) @db.SmallInt
   firstName              String?  @db.VarChar(80)
   middleName             String?  @db.VarChar(80)
   lastName               String?  @db.VarChar(80)
@@ -54,6 +55,8 @@ model User {
   creditTransactions CreditTransaction[]
   notifications      Notification[]
   lockHistories      LockHistory[]
+  searchLocks        SearchLock[]
+  searchAccessRequests SearchAccessRequest[] @relation("UserSearchAccessRequests")
 
   @@index([clientId])
   @@index([branchId])
@@ -89,6 +92,7 @@ model Client {
   subDomains         SubDomain[]
   searchLogs         SearchLog[]
   creditTransactions CreditTransaction[]
+  searchLocks        SearchLock[]
 
   @@index([clientCode])
   @@index([name])
@@ -357,4 +361,44 @@ model LockHistory {
   @@index([recordId])
   @@index([createdAt])
   @@map("lock_histories")
+}
+
+model SearchLock {
+  id         Int        @id @default(autoincrement())
+  searchTerm String     @unique @db.VarChar(255)
+  searchType RecordType
+  lockedBy   Int
+  clientId   Int
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  user                 User                  @relation(fields: [lockedBy], references: [id])
+  client               Client                @relation(fields: [clientId], references: [id])
+  searchAccessRequests SearchAccessRequest[]
+
+  @@index([lockedBy])
+  @@index([clientId])
+  @@index([createdAt])
+  @@map("search_locks")
+}
+
+model SearchAccessRequest {
+  id           Int                 @id @default(autoincrement())
+  searchLockId Int
+  requestedBy  Int
+  status       UnlockRequestStatus @default(pending)
+  reason       String?             @db.Text
+  reviewedBy   Int?
+  reviewedAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  searchLock SearchLock @relation(fields: [searchLockId], references: [id])
+  requester  User       @relation("UserSearchAccessRequests", fields: [requestedBy], references: [id])
+
+  @@index([searchLockId])
+  @@index([requestedBy])
+  @@index([status])
+  @@index([createdAt])
+  @@map("search_access_requests")
 }

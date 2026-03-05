@@ -307,6 +307,85 @@ const exportUnlockRequests = async (req, res) => {
   }
 };
 
+// ── Billing export ──
+
+const exportBilling = async (req, res) => {
+  try {
+    const format = req.query.format || "pdf";
+    const search = (req.query.search || "").trim();
+
+    const where = {};
+    if (req.query.clientId) where.clientId = parseInt(req.query.clientId, 10);
+    if (req.query.userId) where.userId = parseInt(req.query.userId, 10);
+    if (req.query.from || req.query.to) {
+      where.createdAt = {};
+      if (req.query.from) where.createdAt.gte = new Date(req.query.from);
+      if (req.query.to) {
+        const toDate = new Date(req.query.to);
+        toDate.setHours(23, 59, 59, 999);
+        where.createdAt.lte = toDate;
+      }
+    }
+    if (search) {
+      where.searchTerm = { contains: search, mode: "insensitive" };
+    }
+
+    const rows = await prisma.searchLog.findMany({
+      where,
+      include: {
+        user: { select: { firstName: true, lastName: true, email: true } },
+        client: { select: { name: true, clientCode: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: MAX_EXPORT,
+    });
+
+    const flatRows = rows.map((r) => ({
+      id: r.id,
+      client: r.client?.name || "",
+      clientCode: r.client?.clientCode || "",
+      affiliate: [r.user?.firstName, r.user?.lastName].filter(Boolean).join(" ") || r.user?.email || "",
+      searchType: r.searchType,
+      searchTerm: r.searchTerm,
+      billed: r.isBilled ? "Yes" : "No",
+      fee: Number(r.fee).toFixed(2),
+      date: new Date(r.createdAt).toLocaleString(),
+    }));
+
+    const columns = [
+      { label: "ID", key: "id", width: 35 },
+      { label: "Client", key: "client", width: 90 },
+      { label: "Code", key: "clientCode", width: 60 },
+      { label: "Affiliate", key: "affiliate", width: 90 },
+      { label: "Type", key: "searchType", width: 55 },
+      { label: "Search Term", key: "searchTerm", width: 100 },
+      { label: "Billed", key: "billed", width: 40 },
+      { label: "Fee", key: "fee", width: 45 },
+      { label: "Date", key: "date", width: 85 },
+    ];
+
+    if (format === "excel") {
+      await exportExcel(res, "Billing Report", columns, flatRows, "billing-report.xlsx");
+    } else if (format === "csv") {
+      // CSV export
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", 'attachment; filename="billing-report.csv"');
+      const header = columns.map((c) => c.label).join(",");
+      const csvRows = flatRows.map((r) =>
+        columns.map((c) => {
+          const val = r[c.key] != null ? String(r[c.key]).replace(/"/g, '""') : "";
+          return `"${val}"`;
+        }).join(",")
+      );
+      res.send([header, ...csvRows].join("\n"));
+    } else {
+      exportPdf(res, "Billing Report", columns, flatRows, "billing-report.pdf");
+    }
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
 module.exports = {
   exportRecords,
   exportClients,
@@ -314,4 +393,5 @@ module.exports = {
   exportNews,
   exportBranches,
   exportUnlockRequests,
+  exportBilling,
 };

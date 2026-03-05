@@ -113,10 +113,10 @@ const login = async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { email },
-      include: { role: true, client: true },
+      include: { role: true, client: true, branch: true },
     });
     if (!user) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({ message: "Invalid username or password." });
     }
 
     if (!user.role) {
@@ -128,9 +128,14 @@ const login = async (req, res) => {
       return res.status(403).json({ message: "Account not approved" });
     }
 
+    // Check if user is active
+    if (user.isActive === 0) {
+      return res.status(403).json({ message: "Your account is inactive. Please contact the administrator." });
+    }
+
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return res.status(401).json({ message: "Invalid username or password." });
     }
 
     const fullName = [user.firstName, user.middleName, user.lastName]
@@ -149,6 +154,8 @@ const login = async (req, res) => {
         email: user.email,
         fullName,
         clientName: user.client?.name || null,
+        clientId: user.clientId || null,
+        branchId: user.branchId || null,
       },
       process.env.JWT_SECRET,
       { expiresIn: "8h" }

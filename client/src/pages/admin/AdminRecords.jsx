@@ -178,15 +178,10 @@ export default function AdminRecords() {
   const columns = [
     { key: "id", label: "ID" },
     { key: "type", label: "Type" },
-    {
-      key: "name",
-      label: "Name / Company",
-      sortable: false,
-      render: (r) =>
-        r.type === "Individual"
-          ? [r.firstName, r.middleName, r.lastName].filter(Boolean).join(" ")
-          : r.companyName,
-    },
+    { key: "lastName", label: "Last Name", render: (r) => r.lastName || "—" },
+    { key: "firstName", label: "First Name", render: (r) => r.firstName || "—" },
+    { key: "middleName", label: "Middle Name", render: (r) => r.middleName || "—" },
+    { key: "companyName", label: "Company", render: (r) => r.companyName || "—" },
     { key: "caseNo", label: "Case No." },
     { key: "plaintiff", label: "Plaintiff" },
     { key: "dateFiled", label: "Date Filed", render: (r) => r.dateFiled ? new Date(r.dateFiled).toLocaleDateString() : "—" },
