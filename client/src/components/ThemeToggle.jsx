@@ -1,4 +1,4 @@
-import { useTheme } from "../context/ThemeContext";
+import { useTheme } from "../hooks/useTheme";
 
 /**
  * Sun / Moon toggle button for switching between light and dark mode.

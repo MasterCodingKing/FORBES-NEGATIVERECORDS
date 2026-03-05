@@ -3,6 +3,7 @@
 ## What is CI?
 
 **CI = Continuous Integration.** It's an automated process that:
+
 - Runs tests and checks every time you push code or open a Pull Request
 - Blocks bad code from reaching the main branch
 - Catches errors before they go to production
@@ -30,6 +31,7 @@ Reports results on GitHub
 **File location:** `.gitignore` in repo root
 
 **Content includes:**
+
 ```
 node_modules/
 .env
@@ -41,6 +43,7 @@ dist/
 ```
 
 **Command to apply:**
+
 ```bash
 git add .gitignore
 git rm -r --cached node_modules  # Stop tracking but keep files locally
@@ -54,6 +57,7 @@ git commit -m "chore: add .gitignore"
 **File location:** `.github/workflows/ci.yml`
 
 **Why separate jobs?**
+
 - Backend (Node.js + Prisma)
 - Frontend (React + Vite)
 - OCR Service (Python)
@@ -67,22 +71,22 @@ name: CI
 
 on:
   push:
-    branches: [main, BRANCH-NEW]          # Run on these branches
+    branches: [main, BRANCH-NEW] # Run on these branches
   pull_request:
-    branches: [main]                      # Block merge if PR checks fail
+    branches: [main] # Block merge if PR checks fail
 
 jobs:
   backend:
-    runs-on: ubuntu-latest               # Use Ubuntu container
+    runs-on: ubuntu-latest # Use Ubuntu container
     steps:
-      - uses: actions/checkout@v4        # Get the code
-      - uses: actions/setup-node@v4      # Install Node.js
+      - uses: actions/checkout@v4 # Get the code
+      - uses: actions/setup-node@v4 # Install Node.js
         with:
           node-version: 20
-          cache: npm                      # Cache dependencies
-      - run: npm ci                       # Install (cleaner than npm install)
-      - run: npx prisma generate         # Generate Prisma client
-      - run: node --check src/app.js     # Check syntax
+          cache: npm # Cache dependencies
+      - run: npm ci # Install (cleaner than npm install)
+      - run: npx prisma generate # Generate Prisma client
+      - run: node --check src/app.js # Check syntax
 ```
 
 ---
@@ -90,28 +94,32 @@ jobs:
 ## Step 3: Set Up Checks That Must Pass
 
 ### Frontend
+
 ```yaml
 frontend:
   steps:
     - run: npm ci
-    - run: npm run lint                  # ESLint — catches syntax errors
-    - run: npm run build                 # Vite build — catches type errors
+    - run: npm run lint # ESLint — catches syntax errors
+    - run: npm run build # Vite build — catches type errors
 ```
 
 **What each does:**
+
 - `lint` → Finds unused variables, imports, syntax issues
 - `build` → Compiles React → JSX errors surface here
 
 ### Backend
+
 ```yaml
 backend:
   steps:
     - run: npm ci
-    - run: npx prisma generate          # Regenerate client from schema
-    - run: node --check src/app.js      # Checks for syntax errors
+    - run: npx prisma generate # Regenerate client from schema
+    - run: node --check src/app.js # Checks for syntax errors
 ```
 
 ### OCR Service (Python)
+
 ```yaml
 ocr-service:
   steps:
@@ -156,6 +164,7 @@ git push origin main
 ```
 
 ### Check results:
+
 1. Go to GitHub → **Actions** tab
 2. See the workflow running
 3. Click to view logs
@@ -172,16 +181,18 @@ AdminBilling.jsx:44  error  'exportUrl' is assigned a value but never used
 ```
 
 **Fix:** Remove the unused variable
+
 ```js
 // BEFORE
 let exportUrl = "/export/billing/export?";
-exportUrl += qp.join("&");  // <- Built but never used
+exportUrl += qp.join("&"); // <- Built but never used
 
 // AFTER
 // (deleted entirely)
 ```
 
 **Commit the fix:**
+
 ```bash
 git add client/src/pages/admin/AdminBilling.jsx
 git commit -m "fix: remove unused exportUrl variable"
@@ -202,6 +213,7 @@ When someone opens a Pull Request:
 4. Push fixes → CI re-runs → If all ✅ → Can merge
 
 **Example:**
+
 ```
 ⚠️ All checks must pass before merging
 ❌ Frontend — Build failed (ESLint)
@@ -214,11 +226,13 @@ When someone opens a Pull Request:
 ### Add Unit Tests
 
 1. Install testing library:
+
 ```bash
 npm install -D vitest @testing-library/react
 ```
 
 2. Add to `package.json`:
+
 ```json
 "scripts": {
   "test": "vitest run"
@@ -226,6 +240,7 @@ npm install -D vitest @testing-library/react
 ```
 
 3. Add to workflow:
+
 ```yaml
 - run: npm test
 ```
@@ -233,6 +248,7 @@ npm install -D vitest @testing-library/react
 ### Add Database Tests (Backend)
 
 1. Spin up test PostgreSQL in GitHub Actions:
+
 ```yaml
 services:
   postgres:
@@ -248,6 +264,7 @@ services:
 ```
 
 2. Run migrations + tests:
+
 ```yaml
 - run: npx prisma migrate dev
 - run: npm test
@@ -257,11 +274,11 @@ services:
 
 ## What We Did (Summary of Our 7 Fixes)
 
-| # | File | Error Type | Fix |
-|---|---|---|---|
-| 1 | AdminBilling.jsx | Unused variable | Removed `exportUrl` |
-| 2 | AdminRecords.jsx | Unused ref | Removed duplicate `fileRef` |
-| 3 | AdminRecords.jsx | Unused error param | Changed `catch(err)` → `catch` |
+| #   | File                             | Error Type                        | Fix                                                       |
+| --- | -------------------------------- | --------------------------------- | --------------------------------------------------------- |
+| 1   | AdminBilling.jsx                 | Unused variable                   | Removed `exportUrl`                                       |
+| 2   | AdminRecords.jsx                 | Unused ref                        | Removed duplicate `fileRef`                               |
+| 3   | AdminRecords.jsx                 | Unused error param                | Changed `catch(err)` → `catch`                            |
 | 4-7 | clientParser.js + parseWorker.js | Dead code functions + empty catch | Removed 5 unused functions, added `/* ignore */` comments |
 
 **Total impact:** ESLint went from 7 errors → 0 errors, 4 warnings (warnings don't block CI)
@@ -271,32 +288,38 @@ services:
 ## Workflow When Merging Going Forward
 
 ### 1. Create feature branch
+
 ```bash
 git checkout -b feature/my-feature
 # ... make changes ...
 ```
 
 ### 2. Push to GitHub
+
 ```bash
 git push origin feature/my-feature
 ```
 
 ### 3. Open Pull Request on GitHub
+
 - GitHub automatically triggers CI
 - Shows ✅ or ❌ for each job
 
 ### 4. If CI fails:
+
 - Click "Details" on failed job
 - Read the logs
 - Fix locally
 - Push again → CI re-runs
 
 ### 5. Once CI passes + code review approved
+
 - Click "Merge" button
 - Branch auto-deletes
 - CI runs once more on main
 
 ### 6. Monitor main branch
+
 - Go to Actions tab
 - See all workflow runs
 - Click any failed run to debug
@@ -306,17 +329,20 @@ git push origin feature/my-feature
 ## Viewing CI Results
 
 ### On GitHub:
+
 ```
 Repository → Actions → Workflow runs
 ```
 
 Each run shows:
+
 - **Status** (⏳ running / ✅ passed / ❌ failed)
 - **Jobs** (Backend, Frontend, OCR-Service)
 - **Run time** (how long each took)
 - **Logs** (click job to see full output)
 
 ### Example output:
+
 ```
 ✅ Backend — Install & Lint (2m 15s)
   ✅ Set up Node.js — 5s
@@ -340,20 +366,21 @@ Each run shows:
 
 ## Common CI Errors & Fixes
 
-| Error | Cause | Fix |
-|---|---|---|
-| `npm ERR! 404 Not Found` | Wrong package name | Check `package.json` spelling |
-| `EACCES: permission denied` | File permissions | Usually container issue, rebuild |
-| `Cannot find module 'X'` | Missing dependency | Run `npm install X` |
-| `SyntaxError: Unexpected token` | Invalid JavaScript | Fix the syntax error locally |
-| `Prisma generate failed` | Corrupt `.prisma/client` | Run `npx prisma generate` locally |
-| `Port already in use` | Test server conflicts | Change port in test config |
+| Error                           | Cause                    | Fix                               |
+| ------------------------------- | ------------------------ | --------------------------------- |
+| `npm ERR! 404 Not Found`        | Wrong package name       | Check `package.json` spelling     |
+| `EACCES: permission denied`     | File permissions         | Usually container issue, rebuild  |
+| `Cannot find module 'X'`        | Missing dependency       | Run `npm install X`               |
+| `SyntaxError: Unexpected token` | Invalid JavaScript       | Fix the syntax error locally      |
+| `Prisma generate failed`        | Corrupt `.prisma/client` | Run `npx prisma generate` locally |
+| `Port already in use`           | Test server conflicts    | Change port in test config        |
 
 ---
 
 ## Best Practices
 
 ✅ **DO:**
+
 - Keep CI checks fast (< 5 min total)
 - Fix CI immediately (don't merge red)
 - Require CI to pass before merging
@@ -361,6 +388,7 @@ Each run shows:
 - Add meaningful commit messages
 
 ❌ **DON'T:**
+
 - Ignore failing CI jobs
 - Skip checks by disabling them
 - Commit node_modules or .env
@@ -381,6 +409,7 @@ Each run shows:
 ## Your CI Status
 
 **Current setup:**
+
 - ✅ `.gitignore` created
 - ✅ Workflow file (`.github/workflows/ci.yml`)
 - ✅ 3 jobs: Backend, Frontend, OCR-Service

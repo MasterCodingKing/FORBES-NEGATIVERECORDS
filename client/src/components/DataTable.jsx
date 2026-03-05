@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
@@ -47,7 +47,6 @@ export default function DataTable({
   const [exporting, setExporting] = useState("");
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
-  const queryParamsStr = useMemo(() => JSON.stringify(queryParams), [queryParams]);
 
   const loadData = useCallback(
     async (p, s, sBy, sOrder, limit) => {
@@ -95,7 +94,7 @@ export default function DataTable({
         setLoading(false);
       }
     },
-    [fetchUrl, fetchFn, api, queryParamsStr]
+    [fetchUrl, fetchFn, api, queryParams]
   );
 
   // Re-fetch when page, refreshKey, pageSize, sort, or queryParams change
@@ -104,7 +103,7 @@ export default function DataTable({
     return () => {
       if (abortRef.current) abortRef.current.abort();
     };
-  }, [page, refreshKey, pageSize, sortBy, sortOrder, loadData]);
+  }, [page, refreshKey, pageSize, sortBy, sortOrder, search, loadData]);
 
   // Debounced search
   const handleSearch = (val) => {
