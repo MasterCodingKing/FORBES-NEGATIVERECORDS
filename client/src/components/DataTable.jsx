@@ -48,6 +48,9 @@ export default function DataTable({
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
 
+  // Serialize to a stable primitive so object identity doesn't trigger re-renders
+  const queryParamsJson = JSON.stringify(queryParams);
+
   const loadData = useCallback(
     async (p, s, sBy, sOrder, limit) => {
       // Cancel previous request
@@ -61,7 +64,7 @@ export default function DataTable({
           page: p,
           limit: limit,
           search: s,
-          ...queryParams,
+          ...JSON.parse(queryParamsJson),
         };
         if (sBy) {
           params.sortBy = sBy;
@@ -94,7 +97,7 @@ export default function DataTable({
         setLoading(false);
       }
     },
-    [fetchUrl, fetchFn, api, queryParams]
+    [fetchUrl, fetchFn, api, queryParamsJson]
   );
 
   // Re-fetch when page, refreshKey, pageSize, sort, or queryParams change
@@ -105,13 +108,12 @@ export default function DataTable({
     };
   }, [page, refreshKey, pageSize, sortBy, sortOrder, search, loadData]);
 
-  // Debounced search
+  // Debounced search — only setSearch/setPage; the useEffect triggers the fetch
   const handleSearch = (val) => {
     setSearch(val);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setPage(1);
-      loadData(1, val, sortBy, sortOrder, pageSize);
     }, 350);
   };
 
